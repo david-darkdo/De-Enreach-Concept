@@ -12,6 +12,7 @@ import { ImageEditorModal } from "@/components/ImageEditorModal";
 import { triggerSitemapUpdate } from "@/lib/seo-publisher";
 import { generateDeterministicProductSlug } from "@/lib/slug";
 
+
 export const Route = createFileRoute("/_authenticated/admin/products/new")({
   head: () => ({ meta: [{ title: "Create New Product — Admin Panel" }] }),
   component: RebuiltNewProductPage,
@@ -279,6 +280,7 @@ function RebuiltNewProductPage() {
       manualSlug: form.canonical_slug.trim() || null,
     });
 
+
     const seoKeywordsArray = form.seo_keywords
       ? form.seo_keywords.split(",").map(k => k.trim()).filter(Boolean)
       : [];
@@ -411,7 +413,9 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             >
               <option value="">Select Type…</option>
-              {types.map((t) => (\n                <option key={t.id} value={t.id}>{t.name}</option>\n              ))}
+              {types.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -423,7 +427,9 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Category…</option>
-              {filteredCats.map((c) => (\n                <option key={c.id} value={c.id}>{c.name}</option>\n              ))}
+              {filteredCats.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -435,7 +441,9 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Subcategory…</option>
-              {filteredSubs.map((s) => (\n                <option key={s.id} value={s.id}>{s.name}</option>\n              ))}
+              {filteredSubs.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -447,7 +455,9 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Family…</option>
-              {filteredFams.map((f) => (\n                <option key={f.id} value={f.id}>{f.name}</option>\n              ))}
+              {filteredFams.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
             </select>
           </div>
         </div>
