@@ -10,6 +10,7 @@ import { generateStandaloneLifestyleImage } from "@/lib/lifestyle-image.function
 import { ImageUploader, ImageTile, publicImageUrl } from "@/components/ImageUploader";
 import { ImageEditorModal } from "@/components/ImageEditorModal";
 import { triggerSitemapUpdate } from "@/lib/seo-publisher";
+import { generateDeterministicProductSlug } from "@/lib/slug";
 
 export const Route = createFileRoute("/_authenticated/admin/products/new")({
   head: () => ({ meta: [{ title: "Create New Product — Admin Panel" }] }),
@@ -140,12 +141,12 @@ function RebuiltNewProductPage() {
     }
     setGeneratingDetails(true);
     try {
-      const slugBase = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const tempSlug = `draft-${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
+      const tempCode = form.code || previewCode || "TEMP-001";
+      const tempSlug = generateDeterministicProductSlug({ code: tempCode, name: `draft-${form.name.trim()}` });
       
       const { data: tempProduct, error: tempErr } = await supabase.from("products").insert({
         name: form.name.trim(),
-        code: form.code || previewCode || "TEMP-001",
+        code: tempCode,
         type_id: type_id || null,
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
@@ -209,12 +210,12 @@ function RebuiltNewProductPage() {
     }
     setGeneratingLifestyle(true);
     try {
-      const slugBase = (form.name || "installed").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const tempSlug = `draft-img-${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
+      const tempCode = form.code || previewCode || "TEMP-002";
+      const tempSlug = generateDeterministicProductSlug({ code: tempCode, name: `draft-img-${form.name || "installed"}` });
 
       const { data: tempProduct, error: tempErr } = await supabase.from("products").insert({
         name: form.name.trim() || "Sample Product",
-        code: form.code || previewCode || "TEMP-002",
+        code: tempCode,
         type_id: type_id || null,
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
@@ -271,8 +272,12 @@ function RebuiltNewProductPage() {
     if (!originalPath) return toast.error("Original Product Image is required.");
 
     setSaving(true);
-    const slugBase = (form.canonical_slug || form.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    const slug = `${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
+    const assignedCode = form.code.trim() || previewCode || null;
+    const slug = generateDeterministicProductSlug({
+      code: assignedCode,
+      name: form.name.trim(),
+      manualSlug: form.canonical_slug.trim() || null,
+    });
 
     const seoKeywordsArray = form.seo_keywords
       ? form.seo_keywords.split(",").map(k => k.trim()).filter(Boolean)
@@ -406,9 +411,7 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             >
               <option value="">Select Type…</option>
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
+              {types.map((t) => (\n                <option key={t.id} value={t.id}>{t.name}</option>\n              ))}
             </select>
           </div>
           <div>
@@ -420,9 +423,7 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Category…</option>
-              {filteredCats.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {filteredCats.map((c) => (\n                <option key={c.id} value={c.id}>{c.name}</option>\n              ))}
             </select>
           </div>
           <div>
@@ -434,9 +435,7 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Subcategory…</option>
-              {filteredSubs.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+              {filteredSubs.map((s) => (\n                <option key={s.id} value={s.id}>{s.name}</option>\n              ))}
             </select>
           </div>
           <div>
@@ -448,9 +447,7 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs disabled:opacity-50"
             >
               <option value="">Select Family…</option>
-              {filteredFams.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-              ))}
+              {filteredFams.map((f) => (\n                <option key={f.id} value={f.id}>{f.name}</option>\n              ))}
             </select>
           </div>
         </div>
