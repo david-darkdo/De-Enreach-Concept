@@ -107,10 +107,17 @@ export function ProductCard({ product }: { product: ProductRow }) {
             Code · {product.code}
           </p>
         </div>
-        <p className="font-display text-base font-bold text-primary mt-1">
-          ₦{Number(product.price).toLocaleString()}
-          <span className="ml-1 text-[10px] font-normal text-muted-foreground">/sqm</span>
-        </p>
+        <div className="mt-1 flex items-baseline gap-1.5 flex-wrap">
+          {product.original_price != null && Number(product.original_price) > Number(product.price) && (
+            <span className="line-through text-xs font-normal text-destructive">
+              ₦{Number(product.original_price).toLocaleString()}
+            </span>
+          )}
+          <p className="font-display text-base font-bold text-primary">
+            ₦{Number(product.price).toLocaleString()}
+            <span className="ml-1 text-[10px] font-normal text-muted-foreground">/{product.pricing_unit || "sqm"}</span>
+          </p>
+        </div>
         <div className="mt-auto flex gap-2 pt-2 border-t border-border/40">
           <AddToCollectionButton productId={product.id} compact />
           <Link
