@@ -164,6 +164,10 @@ function RebuiltEditProductPage() {
       seo_description: syncedDesc,
       is_published: p.status === "published",
       price: Number(p.price) || 0,
+      original_price: p.original_price ? Number(p.original_price) : null,
+      pricing_unit: p.pricing_unit || "sqm",
+      differentiator_type: p.differentiator_type || null,
+      differentiator_note: (p.differentiator_note || "").trim() || null,
       processing_state: "completed",
     };
     delete payload.id;
@@ -308,7 +312,7 @@ function RebuiltEditProductPage() {
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price (NGN) *</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Selling Price (NGN) *</label>
             <input
               type="number"
               value={p.price || 0}
@@ -316,6 +320,36 @@ function RebuiltEditProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Original Price (NGN)</label>
+            <input
+              type="number"
+              placeholder="Optional regular price"
+              value={p.original_price ?? ""}
+              onChange={(e) => setField("original_price", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pricing Unit *</label>
+            <select
+              value={p.pricing_unit || "sqm"}
+              onChange={(e) => setField("pricing_unit", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            >
+              <option value="sqm">sqm (m²)</option>
+              <option value="piece">piece</option>
+              <option value="set">set</option>
+              <option value="carton">carton</option>
+              <option value="box">box</option>
+              <option value="metre">metre</option>
+              <option value="roll">roll</option>
+              <option value="unit">unit</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Size / Dimension</label>
             <input
@@ -334,9 +368,6 @@ function RebuiltEditProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Material</label>
             <input
@@ -346,12 +377,48 @@ function RebuiltEditProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Color</label>
             <input
               type="text"
               value={p.color || ""}
               onChange={(e) => setField("color", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Type</label>
+            <select
+              value={p.differentiator_type || ""}
+              onChange={(e) => setField("differentiator_type", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            >
+              <option value="">None (Standard)</option>
+              <option value="Pattern">Pattern</option>
+              <option value="Finish">Finish</option>
+              <option value="Color Shade">Color Shade</option>
+              <option value="Veining">Veining</option>
+              <option value="Texture">Texture</option>
+              <option value="Edge Profile">Edge Profile</option>
+              <option value="Hardware">Hardware</option>
+              <option value="Design Style">Design Style</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Note</label>
+              <span className="text-[9px] text-muted-foreground">{(p.differentiator_note || "").length}/80</span>
+            </div>
+            <input
+              type="text"
+              maxLength={80}
+              placeholder="e.g. Bookmatched / Gold Handles"
+              value={p.differentiator_note || ""}
+              onChange={(e) => setField("differentiator_note", e.target.value)}
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
