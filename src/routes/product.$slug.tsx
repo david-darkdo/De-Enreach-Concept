@@ -388,10 +388,17 @@ function ProductPage() {
             <h1 className="mt-1 font-display text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight uppercase">
               {product.name}
             </h1>
-            <p className="mt-1.5 font-display text-2xl font-bold text-primary">
-              ₦{Number(product.price).toLocaleString()}
-              <span className="ml-1 text-sm font-normal text-muted-foreground">/sqm</span>
-            </p>
+            <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
+              {product.original_price != null && Number(product.original_price) > Number(product.price) && (
+                <span className="line-through text-lg font-normal text-destructive">
+                  ₦{Number(product.original_price).toLocaleString()}
+                </span>
+              )}
+              <p className="font-display text-2xl font-bold text-primary">
+                ₦{Number(product.price).toLocaleString()}
+                <span className="ml-1 text-sm font-normal text-muted-foreground">/{product.pricing_unit || "sqm"}</span>
+              </p>
+            </div>
           </div>
 
           {product.short_description && (
@@ -424,6 +431,14 @@ function ProductPage() {
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shadow-sm">
                 <dt className="text-[9px] font-bold uppercase tracking-wider text-primary">Subcategory</dt>
                 <dd className="mt-1 font-semibold text-foreground text-xs">{taxonomy.subcategory.name}</dd>
+              </div>
+            )}
+            {product.differentiator_note && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shadow-sm">
+                <dt className="text-[9px] font-bold uppercase tracking-wider text-primary">
+                  {product.differentiator_type || "Variation"}
+                </dt>
+                <dd className="mt-1 font-semibold text-foreground text-xs">{product.differentiator_note}</dd>
               </div>
             )}
             {[
