@@ -75,7 +75,7 @@ export const runProductDetailsEngine = createServerFn({ method: "POST" })
 
     const familyOverride = famRes.data?.custom_ai_prompt_override ?? null;
 
-    // 3. Load Active AI Prompt Template
+    // 3. Load Canonical Active AI Prompt Template from Database
     const { data: activeTemplate } = await supabase
       .from("ai_prompt_templates")
       .select("prompt_text")
@@ -85,7 +85,9 @@ export const runProductDetailsEngine = createServerFn({ method: "POST" })
       .limit(1)
       .maybeSingle();
 
-    const templateText = activeTemplate?.prompt_text || `Analyze the product details:
+    const templateText =
+      activeTemplate?.prompt_text ||
+      `Analyze the product details and image:
 Product Name: {product_name}
 Code: {code}
 Brand: {brand}
@@ -95,18 +97,22 @@ Material: {material}
 Color: {color}
 Size: {size}
 Price: {price}
+Original Price: {original_price}
+Pricing Unit: {pricing_unit}
+Differentiator Type: {differentiator_type}
+Differentiator Note: {differentiator_note}
 Type: {type}
 Category: {category}
 Subcategory: {subcategory}
 Family Group: {family}
 
 Output strict JSON with ONLY these keys:
-- generated_description (detailed product description)
-- seo_title (compelling SEO title, under 60 chars)
-- seo_description (identical to generated_description)
+- generated_description (rich, elegant customer-facing showroom product narrative)
+- seo_title (compelling search engine title under 60 chars)
+- seo_description (concise search engine snippet under 160 chars, distinct from product description)
 - seo_keywords (array of high-intent search terms)
-- canonical_slug (url-friendly slug)
-- faq (array of {question, answer} objects)
+- canonical_slug (url-friendly slug suggestion)
+- faq (array of 0-2 product-specific {question, answer} objects)
 - structured_data (valid JSON-LD Product schema object)
 - search_keywords (array of search terms)
 - alternative_terms (array of alternative product names)
@@ -116,12 +122,15 @@ Output strict JSON with ONLY these keys:
 
     const systemPrompt = `You are Enreach Product Intelligence AI, an expert in luxury building materials, architectural finishes, premium interiors, showroom product merchandising, customer discovery, and technical SEO.
 
-Your responsibility is to analyze one product using its metadata and image, generate accurate structured product intelligence, and return valid JSON matching the schema keys only.
+Your responsibility is to analyze one product using its manual metadata and uploaded image, generate accurate structured product intelligence, and return valid JSON matching the schema keys only.
 
-Never return explanations.
-Never return markdown.
-Never return prose outside JSON.
-Your output directly populates the Enreach Digital Showroom products table.`;
+CORE INSTRUCTIONS:
+1. Product Description (generated_description): Rich, elegant, informative showroom narrative highlighting aesthetics, design language, texture, and visual identity.
+2. SEO Description (seo_description): Concise, high-intent Google search snippet strictly under 160 characters. Do NOT clone the product description.
+3. Anti-Fabrication Rule: Never invent unverified technical certifications, load ratings, fire ratings, or warranty claims unless provided in manual data.
+4. Product Differentiator: When provided, weave the differentiator nuance into the narrative and search keywords naturally.
+5. FAQs: Include 0 to 2 genuine product-specific questions and answers only. Omit if not strictly relevant.
+6. Structured Output: Return raw JSON only. Never return markdown blocks, prose, or conversational wrappers.`;
 
     // 4. Build Product Metadata Payload
     let prompt = templateText
@@ -134,6 +143,10 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       .replace(/{color}/g, product.color ?? "")
       .replace(/{size}/g, product.size ?? "")
       .replace(/{price}/g, product.price ? String(product.price) : "")
+      .replace(/{original_price}/g, product.original_price ? String(product.original_price) : "")
+      .replace(/{pricing_unit}/g, product.pricing_unit ?? "sqm")
+      .replace(/{differentiator_type}/g, product.differentiator_type ?? "N/A")
+      .replace(/{differentiator_note}/g, product.differentiator_note ?? "N/A")
       .replace(/{context}/g, contextName)
       .replace(/{type}/g, typeName)
       .replace(/{category}/g, categoryName)
@@ -144,11 +157,11 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       prompt += `\n\nAdditional Family Directives: ${familyOverride}`;
     }
 
-    // 5. Call LLM Provider
+    // 5. Call LLM Provider (Single-Pass Request)
     const settings = settingsRes.data;
     const config = settings ? {
       activeProvider: settings.active_ai_provider || "openai",
-      openaiLlmModel: settings.openai_llm_model,
+      openaiLlmModel: settings.openai_llm_model || "gpt-4o-mini",
       openaiImageModel: settings.openai_image_model,
       openaiImageSize: settings.openai_image_size || "1024x1024",
       geminiLlmModel: settings.gemini_llm_model,
@@ -158,44 +171,90 @@ Your output directly populates the Enreach Digital Showroom products table.`;
     const provider = getAIProvider(config as any);
     const imageUrl = product.image_url || undefined;
 
-    const { data: json, error: parseError } = await tryJSON<any>(
-      provider,
-      prompt,
-      systemPrompt,
-      imageUrl
-    );
+    let json: any = null;
+    let parseError: string | undefined = undefined;
 
-    if (!json) {
-      throw new Error(`Engine 1 [${provider.name}]: ${parseError || "Failed to generate valid JSON intelligence payload"}`);
+    try {
+      const result = await tryJSON<any>(provider, prompt, systemPrompt, imageUrl);
+      json = result.data;
+      parseError = result.error;
+    } catch (llmErr: any) {
+      parseError = llmErr.message;
     }
 
-    // 6. EXPLICIT DATABASE MAPPING (ONLY 100% EXISTING COLUMNS)
-    // Real Columns: generated_description, short_description, seo_description, seo_title, seo_keywords,
-    // canonical_slug, faq, structured_data, app_keywords, app_search_keywords, processing_state, is_published, last_processed_at, error_log
+    // 6. Handle AI Generation Failures Gracefully
+    if (!json || parseError) {
+      const executionMs = Date.now() - started;
+      const errorMsg = `Engine 1 [${provider.name}]: ${parseError || "Failed to generate valid JSON intelligence payload"}`;
+
+      // Record failure in ai_jobs
+      try {
+        await supabase.from("ai_jobs" as any).insert({
+          product_id: productId,
+          job_type: "seo",
+          status: "failed",
+          execution_time_ms: executionMs,
+          result: { error: errorMsg, engine: "Engine 1 (Single-Pass Product Details)" },
+          completed_at: new Date().toISOString(),
+        });
+      } catch {}
+
+      // Update product error status without corrupting existing data
+      await supabase.from("products").update({
+        processing_state: "error",
+        error_log: errorMsg,
+      } as any).eq("id", productId);
+
+      throw new Error(errorMsg);
+    }
+
+    // 7. DETERMINISTIC FIELD MAPPING & VALIDATION
     const productPatch: Record<string, any> = {};
 
-    // CRITICAL SYNC RULE: Product Description = SEO Description = Short Description
-    const syncedDescription = json.seo_description || json.meta_description || json.generated_description || json.description || json.short_description || "";
-    if (syncedDescription) {
-      productPatch.generated_description = syncedDescription;
-      productPatch.short_description = syncedDescription;
-      if (!product.seo_description_manual) {
-        productPatch.seo_description = syncedDescription;
+    // Customer-Facing Product Description (Rich Narrative)
+    const generatedDesc = json.generated_description || json.description || json.short_description || "";
+    if (generatedDesc) {
+      productPatch.generated_description = generatedDesc;
+      productPatch.short_description = generatedDesc;
+    }
+
+    // SEO Meta Description (Concise Search Snippet, <160 chars)
+    if (!product.seo_description_manual) {
+      const seoDesc = json.seo_description || json.meta_description || "";
+      if (seoDesc) {
+        productPatch.seo_description = seoDesc.slice(0, 300);
       }
     }
 
-    // SEO Metadata Fields
+    // SEO Metadata Fields (Honoring Manual Authoritative Locks)
     if (!product.seo_title_manual && json.seo_title) {
-      productPatch.seo_title = json.seo_title;
+      productPatch.seo_title = String(json.seo_title).slice(0, 150);
     }
     if (!product.seo_keywords_manual && Array.isArray(json.seo_keywords)) {
-      productPatch.seo_keywords = json.seo_keywords;
+      productPatch.seo_keywords = json.seo_keywords.map((k: any) => String(k).trim()).filter(Boolean);
     }
-    if (json.canonical_slug) productPatch.canonical_slug = json.canonical_slug;
-    if (json.faq) productPatch.faq = json.faq;
-    if (json.structured_data) productPatch.structured_data = json.structured_data;
+    if (json.canonical_slug && typeof json.canonical_slug === "string") {
+      productPatch.canonical_slug = json.canonical_slug.trim();
+    }
 
-    // Search Keywords, Terms & Tokens
+    // Product-Specific FAQ (0-2 items, strictly validated)
+    if (Array.isArray(json.faq)) {
+      const validFaqs = json.faq
+        .filter((item: any) => item && (item.question || item.q) && (item.answer || item.a))
+        .slice(0, 2)
+        .map((item: any) => ({
+          question: String(item.question || item.q).trim(),
+          answer: String(item.answer || item.a).trim(),
+        }));
+      productPatch.faq = validFaqs;
+    }
+
+    // Structured Schema.org Product Data
+    if (json.structured_data && typeof json.structured_data === "object") {
+      productPatch.structured_data = json.structured_data;
+    }
+
+    // Unified Search Keywords, Tokens & Synonyms
     const rawSearchKeywords = [
       ...(Array.isArray(json.search_keywords) ? json.search_keywords : []),
       ...(Array.isArray(json.alternative_terms) ? json.alternative_terms : []),
@@ -207,7 +266,7 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       ...(Array.isArray(json.contractor_terminology) ? json.contractor_terminology : []),
       ...(Array.isArray(json.misspellings) ? json.misspellings : []),
       ...(Array.isArray(json.filter_tokens) ? json.filter_tokens : []),
-    ].filter(Boolean);
+    ].map((t: any) => String(t).trim()).filter(Boolean);
 
     if (rawSearchKeywords.length > 0) {
       const searchArray = Array.from(new Set(rawSearchKeywords));
@@ -215,19 +274,19 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       productPatch.app_search_keywords = searchArray;
     }
 
-    // Execution Tracking
+    // Execution & Lifecycle Tracking
     productPatch.processing_state = "completed";
     productPatch.is_published = true;
     productPatch.last_processed_at = new Date().toISOString();
     productPatch.error_log = null;
 
-    // 7. Save Product Updates to Supabase
+    // 8. Commit Atomic Database Mutation
     const { error: updateErr } = await supabase.from("products").update(productPatch as any).eq("id", productId);
     if (updateErr) {
       throw new Error(`Failed to update product record: ${updateErr.message}`);
     }
 
-    // Save Product Intelligence Backup
+    // 9. Upsert Product Understanding Record
     await supabase.from("product_understanding" as any).upsert({
       product_id: productId,
       raw_ai_response: json,
@@ -239,7 +298,7 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       provider: provider.name,
     }, { onConflict: "product_id" } as any);
 
-    // Compute Similar Product Recommendations
+    // 10. Compute Similar Product Suggestions (Preserve Existing Showroom Cross-sell)
     const { data: similarProds } = await supabase
       .from("products")
       .select("id")
@@ -253,12 +312,12 @@ Your output directly populates the Enreach Digital Showroom products table.`;
       } as any).eq("id", productId);
     }
 
-    // Rebuild Search Index
+    // 11. Rebuild Unified Search Index
     await supabase.rpc("rebuild_search_index" as any, { _product_id: productId } as any);
 
     const executionMs = Date.now() - started;
 
-    // Log Execution Metrics in ai_jobs
+    // 12. Log Execution Metrics in ai_jobs
     try {
       await supabase.from("ai_jobs" as any).insert({
         product_id: productId,
@@ -266,15 +325,16 @@ Your output directly populates the Enreach Digital Showroom products table.`;
         status: "success",
         execution_time_ms: executionMs,
         result: {
-          engine: "Engine 1 (Product Details Engine)",
+          engine: "Engine 1 (Single-Pass Product Details)",
           provider: provider.name,
           keys_routed: Object.keys(productPatch),
+          requests_executed: 1,
         },
         completed_at: new Date().toISOString(),
       });
     } catch {}
 
-    // 8. Re-query Updated Product Row for Verification
+    // 13. Re-query Updated Product Row for Final Verification
     const { data: verifiedProduct } = await supabase
       .from("products")
       .select("*")
@@ -284,9 +344,9 @@ Your output directly populates the Enreach Digital Showroom products table.`;
     return {
       ok: true,
       details: json,
-      syncedDescription,
       product: verifiedProduct,
       executionMs,
       providerName: provider.name,
+      requestsExecuted: 1,
     };
   });
