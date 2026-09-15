@@ -80,13 +80,7 @@ function RebuiltEditProductPage() {
   const setField = (key: string, value: any) => {
     setP((prev: any) => {
       const next = { ...prev, [key]: value };
-      // CRITICAL SYNC RULE: Product Description = SEO Description
       if (key === "short_description" || key === "generated_description") {
-        next.short_description = value;
-        next.generated_description = value;
-        next.seo_description = value;
-      } else if (key === "seo_description") {
-        next.seo_description = value;
         next.short_description = value;
         next.generated_description = value;
       }
@@ -95,13 +89,13 @@ function RebuiltEditProductPage() {
     setIsDirty(true);
   };
 
-  // ENGINE 1 Execution
+  // ENGINE 1 Execution (Single-Pass Product Details)
   const handleGenerateDetails = async () => {
     setGeneratingDetails(true);
     try {
       const res = await runDetailsFn({ data: { productId: id } });
       if (res.ok) {
-        toast.success("Engine 1: Product details & SEO description generated!");
+        toast.success("Engine 1: Single-pass product details & SEO metadata generated!");
         await load();
       } else {
         toast.error("Failed to generate product details.");
@@ -156,12 +150,13 @@ function RebuiltEditProductPage() {
   // SAVE HANDLER
   const save = async () => {
     setSaving(true);
-    const syncedDesc = p.seo_description || p.short_description || p.generated_description || null;
+    const prodDesc = p.generated_description || p.short_description || null;
+    const seoDesc = p.seo_description || null;
     const payload = {
       ...p,
-      short_description: syncedDesc,
-      generated_description: syncedDesc,
-      seo_description: syncedDesc,
+      short_description: prodDesc,
+      generated_description: prodDesc,
+      seo_description: seoDesc,
       is_published: p.status === "published",
       price: Number(p.price) || 0,
       original_price: p.original_price ? Number(p.original_price) : null,
@@ -589,7 +584,7 @@ function RebuiltEditProductPage() {
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-primary" />
             <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 5 — Google SEO & Metadata</h2>
-            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Product Desc == SEO Desc</span>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Google Search Snippet</span>
           </div>
           {showSeoSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </button>
@@ -607,14 +602,12 @@ function RebuiltEditProductPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Description & Product Description (Synced)</label>
-                <span className="text-[9px] text-primary font-semibold">Critical Sync Rule Active</span>
-              </div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Meta Description (Search Snippet)</label>
               <textarea
                 rows={3}
-                value={p.seo_description || p.short_description || p.generated_description || ""}
+                value={p.seo_description || ""}
                 onChange={(e) => setField("seo_description", e.target.value)}
+                placeholder="Concise search engine snippet (under 160 characters)..."
                 className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs leading-relaxed"
               />
             </div>

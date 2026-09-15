@@ -117,26 +117,24 @@ function RebuiltNewProductPage() {
   const filteredSubs = useMemo(() => subs.filter((s) => s.category_id === category_id), [subs, category_id]);
   const filteredFams = useMemo(() => fams.filter((f) => f.subcategory_id === subcategory_id), [fams, subcategory_id]);
 
-  // CRITICAL SYNC RULE HANDLER: Description <-> SEO Description
+  // Description & SEO Description Handlers (Independent)
   const handleDescriptionChange = (val: string) => {
     setForm((prev) => ({
       ...prev,
       description: val,
-      seo_description: val, // Auto Sync Rule: Product Description = SEO Description
     }));
   };
 
   const handleSeoDescriptionChange = (val: string) => {
     setForm((prev) => ({
       ...prev,
-      description: val, // Auto Sync Rule: Product Description = SEO Description
       seo_description: val,
     }));
   };
 
   const runDetailsFn = useServerFn(runProductDetailsEngine);
 
-  // ENGINE 1 Execution
+  // ENGINE 1 Execution (Single-Pass Product Details)
   const handleGenerateDetailsOnNew = async () => {
     if (!form.name.trim()) {
       toast.error("Please enter a Product Name first before generating details.");
@@ -161,6 +159,10 @@ function RebuiltNewProductPage() {
         material: form.material || null,
         size: form.size || null,
         price: Number(form.price) || 0,
+        original_price: form.original_price ? Number(form.original_price) : null,
+        pricing_unit: form.pricing_unit || "sqm",
+        differentiator_type: form.differentiator_type || null,
+        differentiator_note: (form.differentiator_note || "").trim() || null,
         status: "draft",
         processing_state: "pending",
         slug: tempSlug,
@@ -176,16 +178,16 @@ function RebuiltNewProductPage() {
         const d = res.details;
         setAiIntelligence(d);
 
-        // CRITICAL SYNC RULE: Product Description = SEO Description
-        const syncedDesc = d.seo_description || d.meta_description || d.short_description || d.generated_description || "";
+        const prodDesc = d.generated_description || d.description || d.short_description || "";
+        const seoDesc = d.seo_description || d.meta_description || "";
         const seoKw = Array.isArray(d.seo_keywords) ? d.seo_keywords.join(", ") : (d.seo_keywords || "");
         const searchKw = Array.isArray(d.search_keywords) ? d.search_keywords.join(", ") : (d.search_keywords || "");
 
         setForm((prev) => ({
           ...prev,
-          description: syncedDesc || prev.description,
+          description: prodDesc || prev.description,
           seo_title: d.seo_title || prev.seo_title,
-          seo_description: syncedDesc || prev.seo_description,
+          seo_description: seoDesc || prev.seo_description,
           seo_keywords: seoKw || prev.seo_keywords,
           canonical_slug: d.canonical_slug || prev.canonical_slug,
           search_keywords: searchKw || prev.search_keywords,
@@ -195,7 +197,7 @@ function RebuiltNewProductPage() {
           misspellings: Array.isArray(d.misspellings) ? d.misspellings.join(", ") : (d.misspellings || ""),
         }));
 
-        toast.success("Engine 1: Product details generated! Form fields & SEO Description synced!");
+        toast.success("Engine 1: Single-pass product details & SEO metadata generated!");
       }
       await supabase.from("products").delete().eq("id", tempProduct.id);
     } catch (e: any) {
@@ -788,7 +790,7 @@ function RebuiltNewProductPage() {
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-primary" />
             <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 5 — Google SEO & Metadata</h2>
-            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Product Desc == SEO Desc</span>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Google Search Snippet</span>
           </div>
           {showSeoSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </button>
@@ -806,14 +808,12 @@ function RebuiltNewProductPage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Description & Product Description (Synced)</label>
-                <span className="text-[9px] text-primary font-semibold">Critical Sync Rule Active</span>
-              </div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Meta Description (Search Snippet)</label>
               <textarea
                 rows={3}
                 value={form.seo_description}
                 onChange={(e) => handleSeoDescriptionChange(e.target.value)}
+                placeholder="Concise search engine snippet (under 160 characters)..."
                 className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs leading-relaxed"
               />
             </div>
