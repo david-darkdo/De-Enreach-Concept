@@ -10,8 +10,6 @@ import { generateStandaloneLifestyleImage } from "@/lib/lifestyle-image.function
 import { ImageUploader, ImageTile, publicImageUrl } from "@/components/ImageUploader";
 import { ImageEditorModal } from "@/components/ImageEditorModal";
 import { triggerSitemapUpdate } from "@/lib/seo-publisher";
-import { generateDeterministicProductSlug } from "@/lib/slug";
-
 
 export const Route = createFileRoute("/_authenticated/admin/products/new")({
   head: () => ({ meta: [{ title: "Create New Product — Admin Panel" }] }),
@@ -68,6 +66,10 @@ function RebuiltNewProductPage() {
     material: "",
     size: "",
     price: "0",
+    original_price: "",
+    pricing_unit: "sqm",
+    differentiator_type: "",
+    differentiator_note: "",
     status: "published",
     featured_homepage: false,
     featured_feed: false,
@@ -142,12 +144,12 @@ function RebuiltNewProductPage() {
     }
     setGeneratingDetails(true);
     try {
-      const tempCode = form.code || previewCode || "TEMP-001";
-      const tempSlug = generateDeterministicProductSlug({ code: tempCode, name: `draft-${form.name.trim()}` });
+      const slugBase = form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const tempSlug = `draft-${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
       
       const { data: tempProduct, error: tempErr } = await supabase.from("products").insert({
         name: form.name.trim(),
-        code: tempCode,
+        code: form.code || previewCode || "TEMP-001",
         type_id: type_id || null,
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
@@ -211,12 +213,12 @@ function RebuiltNewProductPage() {
     }
     setGeneratingLifestyle(true);
     try {
-      const tempCode = form.code || previewCode || "TEMP-002";
-      const tempSlug = generateDeterministicProductSlug({ code: tempCode, name: `draft-img-${form.name || "installed"}` });
+      const slugBase = (form.name || "installed").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const tempSlug = `draft-img-${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
 
       const { data: tempProduct, error: tempErr } = await supabase.from("products").insert({
         name: form.name.trim() || "Sample Product",
-        code: tempCode,
+        code: form.code || previewCode || "TEMP-002",
         type_id: type_id || null,
         category_id: category_id || null,
         subcategory_id: subcategory_id || null,
@@ -273,13 +275,8 @@ function RebuiltNewProductPage() {
     if (!originalPath) return toast.error("Original Product Image is required.");
 
     setSaving(true);
-    const assignedCode = form.code.trim() || previewCode || null;
-    const slug = generateDeterministicProductSlug({
-      code: assignedCode,
-      name: form.name.trim(),
-      manualSlug: form.canonical_slug.trim() || null,
-    });
-
+    const slugBase = (form.canonical_slug || form.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = `${slugBase}-${Math.random().toString(36).slice(2, 6)}`;
 
     const seoKeywordsArray = form.seo_keywords
       ? form.seo_keywords.split(",").map(k => k.trim()).filter(Boolean)
@@ -310,6 +307,10 @@ function RebuiltNewProductPage() {
       material: form.material.trim() || null,
       size: form.size.trim() || null,
       price: Number(form.price) || 0,
+      original_price: form.original_price ? Number(form.original_price) : null,
+      pricing_unit: form.pricing_unit || "sqm",
+      differentiator_type: form.differentiator_type || null,
+      differentiator_note: form.differentiator_note.trim() || null,
       image_url: originalPath,
       image_mode: isAiMode ? "ai" : "manual",
       status: finalStatus,
@@ -498,7 +499,7 @@ function RebuiltNewProductPage() {
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price (NGN) *</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Selling Price (NGN) *</label>
             <input
               type="number"
               value={form.price}
@@ -506,6 +507,36 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Original Price (NGN)</label>
+            <input
+              type="number"
+              placeholder="Optional regular price"
+              value={form.original_price}
+              onChange={(e) => setForm((f) => ({ ...f, original_price: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pricing Unit *</label>
+            <select
+              value={form.pricing_unit}
+              onChange={(e) => setForm((f) => ({ ...f, pricing_unit: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            >
+              <option value="sqm">sqm (m²)</option>
+              <option value="piece">piece</option>
+              <option value="set">set</option>
+              <option value="carton">carton</option>
+              <option value="box">box</option>
+              <option value="metre">metre</option>
+              <option value="roll">roll</option>
+              <option value="unit">unit</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Size / Dimension</label>
             <input
@@ -526,9 +557,6 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Material</label>
             <input
@@ -539,6 +567,9 @@ function RebuiltNewProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Color</label>
             <input
@@ -546,6 +577,39 @@ function RebuiltNewProductPage() {
               placeholder="e.g. White / Grey Veins"
               value={form.color}
               onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Type</label>
+            <select
+              value={form.differentiator_type}
+              onChange={(e) => setForm((f) => ({ ...f, differentiator_type: e.target.value }))}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            >
+              <option value="">None (Standard)</option>
+              <option value="Pattern">Pattern</option>
+              <option value="Finish">Finish</option>
+              <option value="Color Shade">Color Shade</option>
+              <option value="Veining">Veining</option>
+              <option value="Texture">Texture</option>
+              <option value="Edge Profile">Edge Profile</option>
+              <option value="Hardware">Hardware</option>
+              <option value="Design Style">Design Style</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Note</label>
+              <span className="text-[9px] text-muted-foreground">{form.differentiator_note.length}/80</span>
+            </div>
+            <input
+              type="text"
+              maxLength={80}
+              placeholder="e.g. Bookmatched / Gold Handles"
+              value={form.differentiator_note}
+              onChange={(e) => setForm((f) => ({ ...f, differentiator_note: e.target.value }))}
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
