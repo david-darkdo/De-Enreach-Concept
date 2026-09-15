@@ -4,142 +4,142 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { publicImageUrl } from "@/components/ImageUploader";
-import { generateDeterministicProductSlug } from "@/lib/slug";
 
 export const Route = createFileRoute("/_authenticated/admin/products")({
   component: ProductsLayout,
 });
 
 function ProductsLayout() {
-  const routerState = useRouterState();
-  const isExact = routerState.location.pathname === "/admin/products";
-
-  return (
-    <div>
-      <Outlet />
-      {isExact && <ProductsIndexView />}
-    </div>
-  );
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Nested routes (new / $id) render their own page
+  if (pathname !== "/admin/products") return <Outlet />;
+  return <ProductLibrary />;
 }
 
-type ProductRow = {
+type Row = {
   id: string;
-  code: string | null;
+  code: string;
   name: string;
   production_name: string | null;
   finish_name: string | null;
+  price: number;
+  original_price: number | null;
+  pricing_unit: string | null;
+  status: string;
+  featured_homepage: boolean;
+  featured_feed: boolean;
+  hidden: boolean;
+  ai_status: string;
+  created_at: string;
+  image_url: string | null;
+  generated_studio_image: string | null;
   type_id: string | null;
   category_id: string | null;
   subcategory_id: string | null;
   family_id: string | null;
-  price: number;
-  status: string;
-  processing_state: string | null;
-  featured_homepage: boolean;
-  featured_feed: boolean;
-  hidden: boolean;
-  ai_status: string | null;
-  image_url: string | null;
-  generated_studio_image: string | null;
   deleted_at: string | null;
-  created_at: string;
 };
 
-type Option = { id: string; name: string };
+const STATUSES = ["draft", "review", "published", "archived"] as const;
 
-function ProductsIndexView() {
+function ProductLibrary() {
   const navigate = useNavigate();
-  const [rows, setRows] = useState<ProductRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Taxonomy for filters
-  const [types, setTypes] = useState<Option[]>([]);
-  const [cats, setCats] = useState<Option[]>([]);
-  const [subs, setSubs] = useState<Option[]>([]);
-  const [fams, setFams] = useState<Option[]>([]);
-
-  // Filter state
-  const [search, setSearch] = useState("");
-  const [typeId, setTypeId] = useState("");
-  const [catId, setCatId] = useState("");
-  const [subId, setSubId] = useState("");
-  const [famId, setFamId] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [flagFilter, setFlagFilter] = useState<string>(""); // featured_home, featured_feed, hidden, deleted
-
-  // Selection for bulk actions
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
+  const [cats, setCats] = useState<{ id: string; name: string; type_id: string }[]>([]);
+  const [subs, setSubs] = useState<{ id: string; name: string; category_id: string }[]>([]);
+  const [fams, setFams] = useState<{ id: string; name: string; subcategory_id: string }[]>([]);
 
-  const loadTaxonomy = async () => {
-    const [t, c, s, f] = await Promise.all([
-      supabase.from("product_types").select("id, name").order("name"),
-      supabase.from("categories").select("id, name").order("name"),
-      supabase.from("subcategories").select("id, name").order("name"),
-      supabase.from("family_groups").select("id, name").order("name"),
-    ]);
-    setTypes(t.data ?? []);
-    setCats(c.data ?? []);
-    setSubs(s.data ?? []);
-    setFams(f.data ?? []);
-  };
+  const [filters, setFilters] = useState({
+    type: "",
+    category: "",
+    subcategory: "",
+    family: "",
+    status: "",
+    featured: "",
+    hidden: "",
+    ai: "",
+    includeDeleted: false,
+    q: "",
+  });
 
   const load = async () => {
     setLoading(true);
-    let q = supabase.from("products").select("*").order("created_at", { ascending: false });
-
-    if (typeId) q = q.eq("type_id", typeId);
-    if (catId) q = q.eq("category_id", catId);
-    if (subId) q = q.eq("subcategory_id", subId);
-    if (famId) q = q.eq("family_id", famId);
-    if (statusFilter) q = q.eq("status", statusFilter as any);
-
-    if (flagFilter === "featured_home") q = q.eq("featured_homepage", true);
-    if (flagFilter === "featured_feed") q = q.eq("featured_feed", true);
-    if (flagFilter === "hidden") q = q.eq("hidden", true);
-    if (flagFilter === "deleted") q = q.not("deleted_at", "is", null);
-
-    if (search.trim()) {
-      const term = `%${search.trim()}%`;
-      q = q.or(`name.ilike.${term},code.ilike.${term},production_name.ilike.${term},finish_name.ilike.${term}`);
-    }
-
+    let q = supabase
+      .from("products")
+      .select(
+        "id,code,name,production_name,finish_name,price,original_price,pricing_unit,status,featured_homepage,featured_feed,hidden,ai_status,created_at,image_url,generated_studio_image,type_id,category_id,subcategory_id,family_id,deleted_at",
+      )
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (!filters.includeDeleted) q = q.is("deleted_at", null);
+    if (filters.type) q = q.eq("type_id", filters.type);
+    if (filters.category) q = q.eq("category_id", filters.category);
+    if (filters.subcategory) q = q.eq("subcategory_id", filters.subcategory);
+    if (filters.family) q = q.eq("family_id", filters.family);
+    if (filters.status) q = q.eq("status", filters.status as any);
+    if (filters.ai) q = q.eq("ai_status", filters.ai as any);
+    if (filters.hidden === "yes") q = q.eq("hidden", true);
+    if (filters.hidden === "no") q = q.eq("hidden", false);
+    if (filters.featured === "home") q = q.eq("featured_homepage", true);
+    if (filters.featured === "feed") q = q.eq("featured_feed", true);
+    if (filters.q.trim())
+      q = q.or(`name.ilike.%${filters.q}%,code.ilike.%${filters.q}%,production_name.ilike.%${filters.q}%`);
     const { data, error } = await q;
-    if (error) {
-      toast.error(error.message);
-    } else {
-      setRows((data as ProductRow[]) ?? []);
-    }
+    if (error) toast.error(error.message);
+    setRows((data ?? []) as any);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadTaxonomy();
+    (async () => {
+      const [t, c, s, f] = await Promise.all([
+        supabase.from("product_types").select("id,name").order("name"),
+        supabase.from("categories").select("id,name,type_id").order("name"),
+        supabase.from("subcategories").select("id,name,category_id").order("name"),
+        supabase.from("family_groups").select("id,name,subcategory_id").order("name"),
+      ]);
+      setTypes((t.data ?? []) as any);
+      setCats((c.data ?? []) as any);
+      setSubs((s.data ?? []) as any);
+      setFams((f.data ?? []) as any);
+    })();
   }, []);
 
   useEffect(() => {
     load();
-  }, [typeId, catId, subId, famId, statusFilter, flagFilter, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(filters)]);
 
-  const toggleAll = () => {
-    if (selected.size === rows.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(rows.map((r) => r.id)));
-    }
-  };
+  const filteredCats = useMemo(
+    () => (filters.type ? cats.filter((c) => c.type_id === filters.type) : cats),
+    [filters.type, cats],
+  );
+  const filteredSubs = useMemo(
+    () => (filters.category ? subs.filter((s) => s.category_id === filters.category) : subs),
+    [filters.category, subs],
+  );
+  const filteredFams = useMemo(
+    () => (filters.subcategory ? fams.filter((f) => f.subcategory_id === filters.subcategory) : fams),
+    [filters.subcategory, fams],
+  );
 
   const toggleSel = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
     });
   };
+  const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleAll = () => {
+    if (allChecked) setSelected(new Set());
+    else setSelected(new Set(rows.map((r) => r.id)));
+  };
 
-  const allChecked = rows.length > 0 && selected.size === rows.length;
-
-  // Bulk actions
   const bulk = async (label: string, patch: Record<string, any>) => {
     if (!selected.size) return;
     const ids = Array.from(selected);
@@ -219,11 +219,10 @@ function ProductsIndexView() {
     if (!data) return;
     const { id: _id, code: _c, slug: _s, created_at: _ca, updated_at: _ua, similar_product_ids: _sim, ...rest } =
       data as any;
-    const copyName = `${rest.name} (Copy)`;
     const copy = {
       ...rest,
-      name: copyName,
-      slug: generateDeterministicProductSlug({ name: copyName }),
+      name: `${rest.name} (Copy)`,
+      slug: `${rest.slug}-copy-${Math.random().toString(36).slice(2, 6)}`,
       status: "draft",
     };
     const { data: ins, error } = await supabase.from("products").insert(copy as any).select("id").single();
@@ -249,67 +248,35 @@ function ProductsIndexView() {
         </Link>
       </div>
 
-      {/* Filter bar */}
-      <div className="grid gap-2.5 rounded-xl border border-border bg-card p-4 sm:grid-cols-2 lg:grid-cols-6">
+      {/* Filters */}
+      <div className="grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-4 lg:grid-cols-5">
         <input
-          type="text"
-          placeholder="Search name, code, finish…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary lg:col-span-2"
+          value={filters.q}
+          onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          placeholder="Search name / code…"
+          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
         />
-        <Sel value={typeId} onChange={setTypeId} label="Type" options={types} />
-        <Sel value={catId} onChange={setCatId} label="Category" options={cats} />
-        <Sel value={subId} onChange={setSubId} label="Subcategory" options={subs} />
-        <Sel value={famId} onChange={setFamId} label="Family" options={fams} />
+        <Sel value={filters.type} onChange={(v) => setFilters({ ...filters, type: v, category: "", subcategory: "", family: "" })} label="Type" options={types} />
+        <Sel value={filters.category} onChange={(v) => setFilters({ ...filters, category: v, subcategory: "", family: "" })} label="Category" options={filteredCats} />
+        <Sel value={filters.subcategory} onChange={(v) => setFilters({ ...filters, subcategory: v, family: "" })} label="Subcategory" options={filteredSubs} />
+        <Sel value={filters.family} onChange={(v) => setFilters({ ...filters, family: v })} label="Family" options={filteredFams} />
+        <Sel value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} label="Status" options={STATUSES.map((s) => ({ id: s, name: s }))} />
+        <Sel value={filters.featured} onChange={(v) => setFilters({ ...filters, featured: v })} label="Featured" options={[{ id: "home", name: "Homepage" }, { id: "feed", name: "Feed" }]} />
+        <Sel value={filters.hidden} onChange={(v) => setFilters({ ...filters, hidden: v })} label="Hidden" options={[{ id: "yes", name: "Hidden" }, { id: "no", name: "Visible" }]} />
+        <Sel value={filters.ai} onChange={(v) => setFilters({ ...filters, ai: v })} label="AI Status" options={["idle", "queued", "processing", "ready", "failed"].map((s) => ({ id: s, name: s }))} />
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={filters.includeDeleted} onChange={(e) => setFilters({ ...filters, includeDeleted: e.target.checked })} />
+          Show soft-deleted
+        </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Status:</span>
-        {["", "draft", "published", "archived"].map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-2.5 py-1 font-medium transition ${
-              statusFilter === s
-                ? "bg-primary text-primary-foreground"
-                : "border border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {s ? s.toUpperCase() : "ALL"}
-          </button>
-        ))}
-
-        <span className="ml-4 text-muted-foreground">Flags:</span>
-        {[
-          { id: "", label: "ALL" },
-          { id: "featured_home", label: "Featured (Home)" },
-          { id: "featured_feed", label: "Featured (Feed)" },
-          { id: "hidden", label: "Hidden" },
-          { id: "deleted", label: "Soft Deleted" },
-        ].map((f) => (
-          <button
-            key={f.id}
-            onClick={() => setFlagFilter(f.id)}
-            className={`rounded-full px-2.5 py-1 font-medium transition ${
-              flagFilter === f.id
-                ? "bg-primary text-primary-foreground"
-                : "border border-border bg-card text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Bulk actions bar */}
+      {/* Bulk actions */}
       {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
-          <span className="font-semibold">{selected.size} selected</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3 text-xs">
+          <span className="font-medium">{selected.size} selected</span>
           <Btn onClick={() => bulk("Published", { status: "published" })}>Publish</Btn>
-          <Btn onClick={() => bulk("Set to Draft", { status: "draft" })}>Draft</Btn>
           <Btn onClick={() => bulk("Archived", { status: "archived" })}>Archive</Btn>
-          <Btn onClick={() => bulk("Featured on Home", { featured_homepage: true })}>Feature Home</Btn>
+          <Btn onClick={() => bulk("Featured on Homepage", { featured_homepage: true })}>Feature Home</Btn>
           <Btn onClick={() => bulk("Featured on Feed", { featured_feed: true })}>Feature Feed</Btn>
           <Btn onClick={() => bulk("Un-featured", { featured_homepage: false, featured_feed: false })}>Un-feature</Btn>
           <Btn onClick={() => bulk("Hidden", { hidden: true })}>Hide</Btn>
@@ -369,7 +336,18 @@ function ProductsIndexView() {
                   <td className="p-2 text-muted-foreground">{r.production_name ?? "—"}</td>
                   <td className="p-2 text-muted-foreground">{r.finish_name ?? "—"}</td>
                   <td className="p-2 text-muted-foreground">{type} › {cat} › {sub} › {fam}</td>
-                  <td className="p-2">${Number(r.price).toFixed(2)}</td>
+                  <td className="p-2">
+                    <div className="flex flex-col">
+                      {r.original_price != null && Number(r.original_price) > Number(r.price) && (
+                        <span className="line-through text-[10px] text-destructive">
+                          ₦{Number(r.original_price).toLocaleString()}
+                        </span>
+                      )}
+                      <span className="font-semibold text-foreground">
+                        ₦{Number(r.price).toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">/{r.pricing_unit || "sqm"}</span>
+                      </span>
+                    </div>
+                  </td>
                   <td className="p-2"><Badge>{r.status}</Badge></td>
                   <td className="p-2 space-x-1">
                     {r.featured_homepage && <Badge tone="accent">Home</Badge>}
