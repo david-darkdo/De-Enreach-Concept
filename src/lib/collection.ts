@@ -46,8 +46,12 @@ export function generateCollectionReference(colId?: string): string {
   return `ENC-${year}-${hex}`;
 }
 
-export function detectProductUnit(product: any): "m²" | "Pieces" {
-  if (!product) return "Pieces";
+export function detectProductUnit(product: any): string {
+  if (!product) return "piece";
+  if (product.pricing_unit) {
+    if (product.pricing_unit === "sqm") return "m²";
+    return product.pricing_unit;
+  }
   const name = String(product.name || "").toLowerCase();
   const brand = String(product.brand || "").toLowerCase();
   const desc = String(product.short_description || "").toLowerCase();
@@ -62,7 +66,7 @@ export function detectProductUnit(product: any): "m²" | "Pieces" {
     return "m²";
   }
 
-  return "Pieces";
+  return "piece";
 }
 
 export function getGuestCollection(): GuestItem[] {
