@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type AppSettings = {
   id: string | null;
+  company_name?: string | null;
   support_whatsapp: string | null;
   sales_whatsapp: string | null;
   company_email: string | null;
