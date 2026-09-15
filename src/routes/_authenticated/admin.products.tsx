@@ -23,8 +23,8 @@ type Row = {
   production_name: string | null;
   finish_name: string | null;
   price: number;
-  original_price: number | null;
-  pricing_unit: string | null;
+  original_price?: number | null;
+  pricing_unit?: string | null;
   status: string;
   featured_homepage: boolean;
   featured_feed: boolean;
@@ -70,7 +70,7 @@ function ProductLibrary() {
     let q = supabase
       .from("products")
       .select(
-        "id,code,name,production_name,finish_name,price,original_price,pricing_unit,status,featured_homepage,featured_feed,hidden,ai_status,created_at,image_url,generated_studio_image,type_id,category_id,subcategory_id,family_id,deleted_at",
+        "id,code,name,production_name,finish_name,price,status,featured_homepage,featured_feed,hidden,ai_status,created_at,image_url,generated_studio_image,type_id,category_id,subcategory_id,family_id,deleted_at",
       )
       .order("created_at", { ascending: false })
       .limit(500);
@@ -95,8 +95,7 @@ function ProductLibrary() {
 
   useEffect(() => {
     (async () => {
-      const [t, c, s, f] = await Promise.all([
-        supabase.from("product_types").select("id,name").order("name"),
+      const [t, c, s, f] = await Promise.all([\n        supabase.from("product_types").select("id,name").order("name"),
         supabase.from("categories").select("id,name,type_id").order("name"),
         supabase.from("subcategories").select("id,name,category_id").order("name"),
         supabase.from("family_groups").select("id,name,subcategory_id").order("name"),
@@ -364,8 +363,7 @@ function ProductLibrary() {
                       <button onClick={() => confirmPublish(r.id, r.name)} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Publish</button>
                       <button onClick={() => rowAction(r.id, "Archived", { status: "archived" })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Archive</button>
                       <button onClick={() => rowAction(r.id, "AI queued", { ai_status: "queued", is_ai_processing: true })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Regen AI</button>
-                      {r.deleted_at ? (
-                        <button onClick={() => rowAction(r.id, "Restored", { deleted_at: null })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Restore</button>
+                      {r.deleted_at ? (\n                        <button onClick={() => rowAction(r.id, "Restored", { deleted_at: null })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Restore</button>
                       ) : (
                         <button onClick={() => rowAction(r.id, "Soft deleted", { deleted_at: new Date().toISOString() })} className="rounded border border-border px-1.5 py-0.5 text-amber-600 hover:border-amber-600">Soft Del</button>
                       )}
