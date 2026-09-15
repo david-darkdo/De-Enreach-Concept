@@ -6,6 +6,10 @@ export type ProductRow = {
   name: string;
   code: string;
   price: number;
+  original_price?: number | null;
+  pricing_unit?: string | null;
+  differentiator_type?: string | null;
+  differentiator_note?: string | null;
   brand: string | null;
   image_url: string | null;
   generated_studio_image: string | null;
@@ -28,7 +32,7 @@ export type ProductRow = {
 export type TaxonomyNode = { id: string; name: string; slug: string };
 
 const PRODUCT_FIELDS =
-  "id,slug,name,code,price,brand,image_url,generated_studio_image,generated_installed_image,short_description,family_id,type_id,category_id,subcategory_id,color,material,finish,app_keywords,featured_feed,featured_homepage,created_at";
+  "id,slug,name,code,price,original_price,pricing_unit,differentiator_type,differentiator_note,brand,image_url,generated_studio_image,generated_installed_image,short_description,family_id,type_id,category_id,subcategory_id,color,material,finish,app_keywords,featured_feed,featured_homepage,created_at";
 
 /** Customer-facing visibility: completed processing, published, not hidden, not soft-deleted. */
 function applyPublicFilters<T extends { eq: Function; is: Function }>(q: T): T {
@@ -100,7 +104,7 @@ export async function fetchFeedProductsPaginated(
 
     const { data: ilikeProducts } = await applyPublicFilters(
       supabase.from("products").select("id")
-    ).or(`name.ilike.%${term}%,code.ilike.%${term}%,brand.ilike.%${term}%,short_description.ilike.%${term}%,material.ilike.%${term}%,finish.ilike.%${term}%,color.ilike.%${term}%,size.ilike.%${term}%`);
+    ).or(`name.ilike.%${term}%,code.ilike.%${term}%,brand.ilike.%${term}%,short_description.ilike.%${term}%,material.ilike.%${term}%,finish.ilike.%${term}%,color.ilike.%${term}%,size.ilike.%${term}%,differentiator_note.ilike.%${term}%,differentiator_type.ilike.%${term}%,pricing_unit.ilike.%${term}%`);
 
     if (ilikeProducts) {
       ilikeProducts.forEach((p: any) => matchedIdSet.add(p.id));
