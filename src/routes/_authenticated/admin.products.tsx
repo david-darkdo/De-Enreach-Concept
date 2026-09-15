@@ -95,7 +95,8 @@ function ProductLibrary() {
 
   useEffect(() => {
     (async () => {
-      const [t, c, s, f] = await Promise.all([\n        supabase.from("product_types").select("id,name").order("name"),
+      const [t, c, s, f] = await Promise.all([
+        supabase.from("product_types").select("id,name").order("name"),
         supabase.from("categories").select("id,name,type_id").order("name"),
         supabase.from("subcategories").select("id,name,category_id").order("name"),
         supabase.from("family_groups").select("id,name,subcategory_id").order("name"),
@@ -363,7 +364,8 @@ function ProductLibrary() {
                       <button onClick={() => confirmPublish(r.id, r.name)} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Publish</button>
                       <button onClick={() => rowAction(r.id, "Archived", { status: "archived" })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Archive</button>
                       <button onClick={() => rowAction(r.id, "AI queued", { ai_status: "queued", is_ai_processing: true })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Regen AI</button>
-                      {r.deleted_at ? (\n                        <button onClick={() => rowAction(r.id, "Restored", { deleted_at: null })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Restore</button>
+                      {r.deleted_at ? (
+                        <button onClick={() => rowAction(r.id, "Restored", { deleted_at: null })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Restore</button>
                       ) : (
                         <button onClick={() => rowAction(r.id, "Soft deleted", { deleted_at: new Date().toISOString() })} className="rounded border border-border px-1.5 py-0.5 text-amber-600 hover:border-amber-600">Soft Del</button>
                       )}
