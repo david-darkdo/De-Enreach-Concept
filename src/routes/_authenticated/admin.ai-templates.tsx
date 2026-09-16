@@ -78,6 +78,44 @@ const STAGE_ICONS: Record<string, React.ElementType> = {
 
 const STAGE_ORDER = ["product_details", "lifestyle"];
 
+const CANONICAL_PROMPT_DEFAULTS: Record<string, string> = {
+  product_details: `Analyze the product details and image:
+Product Name: {product_name}
+Code: {code}
+Brand: {brand}
+Production Name: {production_name}
+Finish: {finish}
+Material: {material}
+Color: {color}
+Size: {size}
+Price: {price}
+Original Price: {original_price}
+Pricing Unit: {pricing_unit}
+Differentiator Type: {differentiator_type}
+Differentiator Note: {differentiator_note}
+Type: {type}
+Category: {category}
+Subcategory: {subcategory}
+Family Group: {family}
+
+Output strict JSON with ONLY these keys:
+- generated_description (rich, elegant customer-facing showroom product narrative)
+- seo_title (compelling search engine title under 60 chars)
+- seo_description (concise search engine snippet under 160 chars, distinct from product description)
+- seo_keywords (array of high-intent search terms)
+- canonical_slug (url-friendly slug suggestion)
+- applications (array of 2 to 4 product-specific application strings e.g. ["Master Bathroom Walls", "Luxury Kitchen Islands", "High-Traffic Commercial Flooring"])
+- application_summary (short, 1-2 sentence product-specific application context explaining where and why this material excels)
+- faq (array of 0-2 product-specific {question, answer} objects)
+- structured_data (valid JSON-LD Product schema object)
+- search_keywords (array of search terms)
+- alternative_terms (array of alternative product names)
+- related_terms (array of complementary terms)
+- synonyms (array of synonyms)
+- misspellings (array of common customer typos)`,
+  lifestyle: `Realistic architectural photograph of {product_name} installed in a tasteful luxury {context} setting. High-end interior design, realistic natural ambient lighting, 8k resolution, authentic material texture and finish.`,
+};
+
 const STAGE_LABELS: Record<string, { label: string; description: string; color: string }> = {
   product_details: {
     label: "Universal Detailed Prompt Editor (Engine 1)",
@@ -150,7 +188,7 @@ function AdminAiTemplatesPage() {
           key,
           name: p?.name ?? STAGE_LABELS[key]?.label ?? key,
           purpose: p?.purpose ?? STAGE_LABELS[key]?.description ?? "",
-          prompt_text: p?.prompt_text ?? "",
+          prompt_text: p?.prompt_text || p?.description_prompt || CANONICAL_PROMPT_DEFAULTS[key] || "",
           is_active: p?.is_active ?? true,
           version: p?.version ?? 1,
           updated_at: p?.updated_at,
@@ -213,10 +251,11 @@ function AdminAiTemplatesPage() {
 
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         name: current.name,
         purpose: current.purpose,
         prompt_text: current.prompt_text,
+        description_prompt: current.prompt_text,
         is_active: current.is_active,
         updated_by: user?.id,
       };
@@ -247,520 +286,320 @@ function AdminAiTemplatesPage() {
         .update({
           name: version.name,
           prompt_text: version.prompt_text,
+          description_prompt: version.prompt_text,
           is_active: version.is_active,
+          version: (currentTemplate?.version ?? 1) + 1,
           updated_by: user?.id,
         } as any)
         .eq("id", version.template_id);
-
       if (error) throw error;
-      toast.success(`✓ Restored to version v${version.version}`);
-      void loadData();
+
+      toast.success(`Restored to v${version.version}`);
       setActiveTab("editor");
+      void loadData();
     } catch (e: any) {
-      toast.error(e.message ?? "Failed to restore version");
+      toast.error(e.message ?? "Failed to restore template");
     } finally {
       setSaving(false);
     }
   };
 
-  const runSandbox = async () => {
-    if (!selectedProductId || !currentTemplate) return;
+  const handleRunSandbox = async () => {
+    if (!selectedProductId) return toast.error("Please select a product for testing.");
+    const current = templates.find((t) => t.key === selectedKey);
+    if (!current) return;
+
     setTesting(true);
     setSandboxResult(null);
     setSandboxError("");
+
     try {
       const res = await sandboxFn({
-        data: { productId: selectedProductId, stageKey: currentTemplate.key },
+        data: {
+          productId: selectedProductId,
+          stageKey: selectedKey,
+          promptOverride: current.prompt_text,
+        },
       });
-      if (res.ok) {
-        const result = res as any;
-        // Try to parse validation result if quality stage
-        let validationResult: any = null;
-        if (currentTemplate.key === "quality" && result.aiResponse) {
-          try {
-            const m = result.aiResponse.match(/\{[\s\S]*\}/);
-            if (m) validationResult = JSON.parse(m[0]);
-          } catch {}
-        }
-        setSandboxResult({ ...result, validationResult });
+
+      if (res.ok && res.data) {
+        setSandboxResult(res.data);
+        toast.success(`Sandbox executed successfully in ${res.data.executionMs}ms`);
       } else {
-        setSandboxError((res as any).error ?? "Sandbox execution failed");
+        setSandboxError(res.error ?? "Sandbox execution failed");
+        toast.error("Sandbox test failed");
       }
     } catch (e: any) {
-      setSandboxError(e.message ?? "Unexpected error running sandbox");
+      setSandboxError(e.message ?? "Failed to execute sandbox");
+      toast.error(e.message ?? "Sandbox error");
     } finally {
       setTesting(false);
     }
   };
 
-  const selectedProduct = products.find((p) => p.id === selectedProductId);
+  const insertVariable = (variable: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const next = text.substring(0, start) + variable + text.substring(end);
+    handleFieldChange("prompt_text", next);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + variable.length, start + variable.length);
+    }, 50);
+  };
+
+  const variables = [
+    { label: "Product Name", tag: "{product_name}" },
+    { label: "Product Code", tag: "{code}" },
+    { label: "Brand", tag: "{brand}" },
+    { label: "Finish", tag: "{finish}" },
+    { label: "Material", tag: "{material}" },
+    { label: "Color", tag: "{color}" },
+    { label: "Size", tag: "{size}" },
+    { label: "Price", tag: "{price}" },
+    { label: "Original Price", tag: "{original_price}" },
+    { label: "Pricing Unit", tag: "{pricing_unit}" },
+    { label: "Differentiator Type", tag: "{differentiator_type}" },
+    { label: "Differentiator Note", tag: "{differentiator_note}" },
+    { label: "Category", tag: "{category}" },
+    { label: "Subcategory", tag: "{subcategory}" },
+    { label: "Type", tag: "{type}" },
+    { label: "Family", tag: "{family}" },
+    { label: "Installation Context", tag: "{context}" },
+  ];
 
   if (loading) {
     return (
-      <div className="container-app py-10 flex items-center gap-3 text-sm text-muted-foreground">
-        <Sparkles className="h-4 w-4 animate-pulse text-primary" />
-        Loading AI Operating System...
+      <div className="container-app py-12 text-center text-xs text-muted-foreground font-mono">
+        Loading AI Control Center…
       </div>
     );
   }
 
   return (
-    <div className="container-app py-6 space-y-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-5">
+    <div className="container-app py-6 max-w-6xl space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" /> AI Control Center
+          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground uppercase flex items-center gap-2">
+            <Sparkles className="h-6 w-6 text-primary" /> AI Control Center
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Universal AI Operating System — six stages, one intelligence pipeline.
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Single-Pass Product Intelligence (Engine 1) & Lifestyle Image (Engine 2) Prompts
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {!isSuperAdmin && (
-            <span className="text-xs border border-amber-500/20 bg-amber-500/10 text-amber-600 rounded px-2.5 py-1 font-medium">
-              Read-Only View
-            </span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving || !isSuperAdmin || !currentTemplate}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 disabled:opacity-50 cursor-pointer"
-          >
-            <Save className="h-3.5 w-3.5" />
-            {saving ? "Saving..." : "Save Template"}
-          </button>
-        </div>
+        {isSuperAdmin && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:bg-primary/95 transition shadow-sm disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" /> {saving ? "Saving…" : "Save Template"}
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-[240px_1fr]">
-        {/* Stage Selector Sidebar */}
-        <aside className="space-y-1">
-          <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-3">
-            Pipeline Stages
-          </h2>
-          {STAGE_ORDER.map((key, idx) => {
-            const tmpl = templates.find((t) => t.key === key);
-            const StageIcon = STAGE_ICONS[key] ?? Brain;
-            const isSelected = selectedKey === key;
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  setSelectedKey(key);
-                  setSandboxResult(null);
-                  setSandboxError("");
-                }}
-                className={`w-full text-left rounded-lg px-3 py-2.5 text-xs font-medium transition flex items-center gap-2.5 cursor-pointer group ${
-                  isSelected
-                    ? "bg-primary text-primary-foreground font-semibold shadow-sm"
-                    : "border border-transparent hover:bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <span className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold border ${
-                  isSelected ? "bg-primary-foreground/20 text-primary-foreground border-primary-foreground/30" : "bg-muted border-border text-muted-foreground"
-                }`}>
-                  {idx + 1}
-                </span>
-                <StageIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{STAGE_LABELS[key]?.label ?? key}</span>
-                <span className={`ml-auto text-[10px] rounded px-1 py-0.5 flex-shrink-0 ${
-                  isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
-                }`}>
-                  v{tmpl?.version ?? 1}
-                </span>
-              </button>
-            );
-          })}
-
-          {/* Pipeline Execution Order Info */}
-          <div className="mt-4 px-2 pt-3 border-t border-border">
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              Execution order is fixed. Each stage consumes the Product Intelligence Object created by stage 1.
-            </p>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <div className="space-y-0 bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          {/* Stage Header */}
-          {currentTemplate && (
-            <div className={`flex items-start gap-3 px-6 py-4 border-b border-border`}>
-              {(() => {
-                const StageIcon = STAGE_ICONS[currentTemplate.key] ?? Brain;
-                const meta = STAGE_LABELS[currentTemplate.key];
-                return (
-                  <>
-                    <div className={`p-2 rounded-lg border ${meta?.color ?? "text-primary bg-primary/10 border-primary/20"}`}>
-                      <StageIcon className="h-4 w-4" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-sm font-semibold">{currentTemplate.name}</h2>
-                        <span className="text-[10px] bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono">
-                          v{currentTemplate.version}
-                        </span>
-                        <span className={`text-[10px] rounded px-1.5 py-0.5 font-medium ${
-                          currentTemplate.is_active
-                            ? "text-emerald-700 bg-emerald-500/10 border border-emerald-500/20"
-                            : "text-red-600 bg-red-500/10 border border-red-500/20"
-                        }`}>
-                          {currentTemplate.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{currentTemplate.purpose}</p>
-                      {currentTemplate.updated_at && (
-                        <p className="text-[10px] text-muted-foreground mt-1">
-                          Last updated: {new Date(currentTemplate.updated_at).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* Tab Bar */}
-          <div className="flex border-b border-border px-2">
-            {(["editor", "sandbox", "history"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`pb-2.5 pt-3 px-4 text-xs font-semibold border-b-2 transition cursor-pointer capitalize ${
-                  activeTab === tab
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab === "history" ? `Version History (${historyLogs.length})` : tab === "sandbox" ? "Sandbox Test" : "Prompt Editor"}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-6">
-            {/* ─────────────── PROMPT EDITOR ─────────────── */}
-            {currentTemplate && activeTab === "editor" && (
-              <div className="space-y-5">
-                {/* Active toggle */}
-                <div className="flex items-center justify-between bg-muted/40 border border-border rounded-lg px-4 py-3">
-                  <div>
-                    <p className="text-xs font-medium">Template Active Status</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Inactive templates are skipped by the pipeline.
-                    </p>
-                  </div>
-                  <button
-                    disabled={!isSuperAdmin}
-                    onClick={() => handleFieldChange("is_active", !currentTemplate.is_active)}
-                    className={`inline-flex items-center text-xs font-bold gap-1 transition cursor-pointer ${
-                      currentTemplate.is_active ? "text-emerald-600" : "text-red-500"
-                    } disabled:opacity-60`}
-                  >
-                    {currentTemplate.is_active ? (
-                      <ToggleRight className="h-5 w-5" />
-                    ) : (
-                      <ToggleLeft className="h-5 w-5" />
-                    )}
-                    {currentTemplate.is_active ? "Active" : "Disabled"}
-                  </button>
-                </div>
-
-                {/* Prompt text editor */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Prompt Directives</h3>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      {currentTemplate.prompt_text.length} chars
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This is the live prompt sent to the AI model during pipeline execution. Every save creates a new version.
-                  </p>
-                  <textarea
-                    ref={textareaRef}
-                    disabled={!isSuperAdmin}
-                    rows={20}
-                    value={currentTemplate.prompt_text}
-                    onChange={(e) => handleFieldChange("prompt_text", e.target.value)}
-                    placeholder={isSuperAdmin ? "Enter your prompt here. Use placeholders like {product_name}, {brand}, {product_intelligence}..." : "Contact a super admin to edit this prompt."}
-                    className="w-full text-xs font-mono bg-background border border-border rounded-lg p-4 outline-none focus:border-primary resize-y leading-relaxed disabled:opacity-70"
-                  />
-                </div>
-
-                {/* Available variables hint */}
-                <div className="bg-muted/30 border border-border rounded-lg p-3">
-                  <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">Available Placeholders</p>
-                  <div className="flex flex-wrap gap-1">
-                    {[
-                      "{product_name}", "{brand}", "{finish}", "{material}", "{color}", "{size}",
-                      "{product_intelligence}", "{product_type}", "{installation_area}", "{installation_context}",
-                      "{style}", "{luxury_level}", "{visual_characteristics}", "{design_language}",
-                      "{original_image_url}", "{generated_image_url}", "{company_name}",
-                    ].map((v) => (
-                      <code key={v} className="text-[10px] bg-muted border border-border rounded px-1.5 py-0.5 text-muted-foreground font-mono">
-                        {v}
-                      </code>
-                    ))}
-                  </div>
-                </div>
+      {/* Stage Selector Pills */}
+      <div className="grid grid-cols-2 gap-3">
+        {STAGE_ORDER.map((key) => {
+          const tmpl = templates.find((t) => t.key === key);
+          const meta = STAGE_LABELS[key];
+          const Icon = STAGE_ICONS[key] || FileText;
+          const isSelected = selectedKey === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setSelectedKey(key)}
+              className={`flex items-start gap-3 rounded-xl border p-4 text-left transition ${
+                isSelected
+                  ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary"
+                  : "border-border bg-card hover:border-primary/40"
+              }`}
+            >
+              <div className={`p-2 rounded-lg border ${meta.color}`}>
+                <Icon className="h-5 w-5" />
               </div>
-            )}
-
-            {/* ─────────────── SANDBOX ─────────────── */}
-            {currentTemplate && activeTab === "sandbox" && (
-              <div className="space-y-5">
-                {/* Product Selector */}
-                <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-4">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Play className="h-4 w-4 text-primary" /> Sandbox Configuration
-                  </h3>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Select Product</label>
-                      <select
-                        value={selectedProductId}
-                        onChange={(e) => {
-                          setSelectedProductId(e.target.value);
-                          setSandboxResult(null);
-                          setSandboxError("");
-                        }}
-                        className="w-full text-xs bg-background border border-border rounded-lg px-3 py-2 outline-none focus:border-primary"
-                      >
-                        <option value="">Choose a product...</option>
-                        {products.map((prod) => (
-                          <option key={prod.id} value={prod.id}>
-                            {prod.name} {prod.brand ? `(${prod.brand})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Stage to Test</label>
-                      <div className="px-3 py-2 text-xs border border-border rounded-lg bg-background text-foreground font-medium">
-                        {STAGE_LABELS[currentTemplate.key]?.label ?? currentTemplate.key}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Selected Product Preview */}
-                  {selectedProduct && (
-                    <div className="flex items-center gap-3 border border-border rounded-lg p-3 bg-background">
-                      {selectedProduct.image_url ? (
-                        <img
-                          src={selectedProduct.image_url}
-                          alt={selectedProduct.name}
-                          className="h-12 w-12 object-cover rounded border border-border flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 bg-muted rounded border border-border flex items-center justify-center flex-shrink-0">
-                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-xs font-semibold">{selectedProduct.name}</p>
-                        <p className="text-[11px] text-muted-foreground">{selectedProduct.brand || "No brand"}</p>
-                        <p className="text-[10px] text-muted-foreground capitalize mt-0.5">
-                          Pipeline state: {selectedProduct.processing_state ?? "unknown"}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {currentTemplate.key === "lifestyle" && (
-                    <div className="text-xs text-amber-700 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
-                      <ImageIcon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                      <span>Sandbox for Lifestyle stage shows the compiled image generation prompt only. No image is generated to avoid costs.</span>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={runSandbox}
-                    disabled={testing || !selectedProductId}
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60 cursor-pointer transition"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    {testing ? "Running AI Stage..." : `Run ${STAGE_LABELS[currentTemplate.key]?.label ?? "Stage"}`}
-                  </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-xs font-bold uppercase text-foreground">{meta.label}</h3>
+                  <span className="text-[10px] font-mono text-muted-foreground">v{tmpl?.version ?? 1}</span>
                 </div>
-
-                {/* Error display */}
-                {sandboxError && (
-                  <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-4 flex gap-3">
-                    <XCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-semibold text-red-600">Sandbox Execution Failed</p>
-                      <p className="text-xs text-red-500/80 mt-1">{sandboxError}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Sandbox Results */}
-                {sandboxResult && (
-                  <div className="space-y-4">
-                    {/* Metrics bar */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-muted/30 border border-border rounded-lg p-3 text-center">
-                        <Clock className="h-4 w-4 text-primary mx-auto mb-1" />
-                        <p className="text-xs font-bold">{sandboxResult.executionMs.toLocaleString()}ms</p>
-                        <p className="text-[10px] text-muted-foreground">Execution Time</p>
-                      </div>
-                      <div className="bg-muted/30 border border-border rounded-lg p-3 text-center">
-                        <Sparkles className="h-4 w-4 text-primary mx-auto mb-1" />
-                        <p className="text-xs font-bold capitalize">{sandboxResult.providerName}</p>
-                        <p className="text-[10px] text-muted-foreground">AI Provider</p>
-                      </div>
-                      <div className="bg-muted/30 border border-border rounded-lg p-3 text-center">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
-                        <p className="text-xs font-bold">Completed</p>
-                        <p className="text-[10px] text-muted-foreground">Status</p>
-                      </div>
-                    </div>
-
-                    {/* Quality validation result */}
-                    {sandboxResult.stageKey === "quality" && sandboxResult.validationResult && (
-                      <div className={`rounded-xl border p-4 ${
-                        sandboxResult.validationResult.passes_validation
-                          ? "bg-emerald-500/5 border-emerald-500/20"
-                          : "bg-red-500/5 border-red-500/20"
-                      }`}>
-                        <div className="flex items-center gap-2 mb-3">
-                          {sandboxResult.validationResult.passes_validation ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
-                          <p className="text-xs font-bold">
-                            {sandboxResult.validationResult.passes_validation ? "Validation Passed" : "Validation Failed"}
-                          </p>
-                          <span className="ml-auto text-xs font-mono">
-                            Score: {sandboxResult.validationResult.confidence_score ?? "N/A"}/100
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-[10px]">
-                          {["material_match", "geometry_match", "texture_match", "finish_match", "orientation_match", "color_match"].map((k) => (
-                            <div key={k} className="flex items-center gap-1">
-                              {sandboxResult.validationResult?.[k] ? (
-                                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                              ) : (
-                                <XCircle className="h-3 w-3 text-red-400" />
-                              )}
-                              <span className="capitalize">{k.replace(/_/g, " ")}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {sandboxResult.validationResult.failure_reasons?.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-red-500/20">
-                            <p className="text-[10px] font-semibold text-red-600 mb-1">Failure Reasons:</p>
-                            {sandboxResult.validationResult.failure_reasons.map((r: string, i: number) => (
-                              <p key={i} className="text-[10px] text-red-500">• {r}</p>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Compiled Prompt */}
-                    <div className="bg-muted/30 border border-border rounded-xl p-4">
-                      <div className="flex justify-between items-center border-b border-border pb-2 mb-3">
-                        <span className="text-xs font-semibold flex items-center gap-1.5">
-                          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                          {sandboxResult.isImageStage ? "Compiled Image Prompt" : "Compiled Prompt Sent to AI"}
-                        </span>
-                        <span className="text-[10px] text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded font-mono">
-                          {sandboxResult.compiledPrompt.length} chars
-                        </span>
-                      </div>
-                      <pre className="text-xs font-mono bg-background text-muted-foreground border border-border rounded-lg p-3 overflow-auto max-h-64 whitespace-pre-wrap leading-relaxed">
-                        {sandboxResult.compiledPrompt}
-                      </pre>
-                    </div>
-
-                    {/* AI Response */}
-                    {!sandboxResult.isImageStage && sandboxResult.aiResponse && (
-                      <div className="bg-muted/30 border border-border rounded-xl p-4">
-                        <div className="flex justify-between items-center border-b border-border pb-2 mb-3">
-                          <span className="text-xs font-semibold flex items-center gap-1.5">
-                            <Sparkles className="h-3.5 w-3.5 text-primary" />
-                            AI Response
-                          </span>
-                          <span className="text-[10px] text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded font-mono">
-                            JSON Output
-                          </span>
-                        </div>
-                        <pre className="text-xs font-mono bg-background text-foreground border border-border rounded-lg p-3 overflow-auto max-h-96 whitespace-pre-wrap leading-relaxed">
-                          {(() => {
-                            try {
-                              const m = sandboxResult.aiResponse.match(/\{[\s\S]*\}/);
-                              if (m) return JSON.stringify(JSON.parse(m[0]), null, 2);
-                            } catch {}
-                            return sandboxResult.aiResponse;
-                          })()}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{meta.description}</p>
               </div>
-            )}
+            </button>
+          );
+        })}
+      </div>
 
-            {/* ─────────────── VERSION HISTORY ─────────────── */}
-            {currentTemplate && activeTab === "history" && (
-              <div className="space-y-4">
-                {historyLoading ? (
-                  <div className="text-xs text-muted-foreground py-8 flex items-center gap-2">
-                    <RotateCcw className="h-3.5 w-3.5 animate-spin" />
-                    Loading version history...
-                  </div>
-                ) : historyLogs.length === 0 ? (
-                  <div className="text-xs text-muted-foreground py-12 border border-dashed border-border rounded-xl text-center space-y-2">
-                    <History className="h-8 w-8 mx-auto text-muted-foreground/40" />
-                    <p className="font-medium">No version history yet</p>
-                    <p className="text-[11px]">Save changes to the prompt to create your first version.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">
-                      {historyLogs.length} version{historyLogs.length !== 1 ? "s" : ""} found for this template.
-                    </p>
-                    {historyLogs.map((log, idx) => (
-                      <div key={log.id} className="bg-muted/30 border border-border rounded-xl p-4 space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2">
-                            <History className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold">Version v{log.version}</span>
-                                {idx === 0 && (
-                                  <span className="text-[10px] bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded px-1.5 py-0.5">Previous</span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                {new Date(log.created_at).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleRestore(log)}
-                            disabled={saving || !isSuperAdmin}
-                            className="text-[10px] text-primary border border-primary/20 bg-primary/5 hover:bg-primary/10 rounded px-2.5 py-1 font-semibold flex items-center gap-1 disabled:opacity-50 cursor-pointer"
-                          >
-                            <RotateCcw className="h-3 w-3" /> Restore
-                          </button>
-                        </div>
-
-                        <pre className="text-[10px] font-mono whitespace-pre-wrap bg-background text-muted-foreground rounded-lg border border-border p-3 max-h-36 overflow-y-auto leading-relaxed">
-                          {log.prompt_text}
-                        </pre>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+      {/* Main Workspace Tabs */}
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab("editor")}
+              className={`px-4 py-3 text-xs font-bold uppercase tracking-wider transition border-b-2 ${
+                activeTab === "editor"
+                  ? "border-primary text-primary bg-background"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Prompt Editor
+            </button>
+            <button
+              onClick={() => setActiveTab("sandbox")}
+              className={`px-4 py-3 text-xs font-bold uppercase tracking-wider transition border-b-2 ${
+                activeTab === "sandbox"
+                  ? "border-primary text-primary bg-background"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Live Sandbox Test
+            </button>
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-4 py-3 text-xs font-bold uppercase tracking-wider transition border-b-2 ${
+                activeTab === "history"
+                  ? "border-primary text-primary bg-background"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Version History
+            </button>
           </div>
         </div>
+
+        {/* Tab 1: Editor */}
+        {activeTab === "editor" && currentTemplate && (
+          <div className="p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
+              <div>
+                <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">
+                  {STAGE_LABELS[selectedKey]?.label || currentTemplate.name}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">{STAGE_LABELS[selectedKey]?.description}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground font-mono">Stage Key: {currentTemplate.key}</span>
+              </div>
+            </div>
+
+            {/* Variable Insertion Pills */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Available Product Variables</label>
+              <div className="flex flex-wrap gap-1.5">
+                {variables.map((v) => (
+                  <button
+                    key={v.tag}
+                    type="button"
+                    onClick={() => insertVariable(v.tag)}
+                    className="rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground hover:bg-primary/10 hover:text-primary transition"
+                  >
+                    + {v.label} ({v.tag})
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Textarea Editor */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Prompt Template Text</label>
+              <textarea
+                ref={textareaRef}
+                rows={18}
+                value={currentTemplate.prompt_text}
+                onChange={(e) => handleFieldChange("prompt_text", e.target.value)}
+                className="mt-1 w-full rounded-md border border-input bg-background p-4 text-xs font-mono leading-relaxed resize-y"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Sandbox */}
+        {activeTab === "sandbox" && (
+          <div className="p-5 space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3 items-end">
+              <div className="sm:col-span-2">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Select Test Product</label>
+                <select
+                  value={selectedProductId}
+                  onChange={(e) => setSelectedProductId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+                >
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.brand || "Enreach"})</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleRunSandbox}
+                disabled={testing || !selectedProductId}
+                className="flex items-center justify-center gap-2 rounded bg-primary px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:bg-primary/95 transition shadow-sm disabled:opacity-50"
+              >
+                <Play className="h-4 w-4" /> {testing ? "Executing AI Sandbox…" : "Run Test Sandbox"}
+              </button>
+            </div>
+
+            {sandboxError && (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                {sandboxError}
+              </div>
+            )}
+
+            {sandboxResult && (
+              <div className="space-y-4 pt-2">
+                <div className="rounded-lg border border-border bg-background p-3 text-xs flex items-center justify-between font-mono">
+                  <span>Provider: {sandboxResult.providerName}</span>
+                  <span>Execution: {sandboxResult.executionMs}ms</span>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-bold uppercase text-foreground mb-1">AI Output Response</h3>
+                  <pre className="rounded-lg border border-border bg-muted/30 p-4 text-xs font-mono whitespace-pre-wrap overflow-x-auto max-h-96">
+                    {sandboxResult.aiResponse}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: History */}
+        {activeTab === "history" && (
+          <div className="p-5 space-y-3">
+            {historyLoading ? (
+              <div className="text-xs text-muted-foreground font-mono py-6 text-center">Loading version history…</div>
+            ) : historyLogs.length === 0 ? (
+              <div className="text-xs text-muted-foreground italic py-6 text-center">No version history records found yet for this template.</div>
+            ) : (
+              <div className="space-y-2.5">
+                {historyLogs.map((h) => (
+                  <div key={h.id} className="rounded-lg border border-border bg-background p-3 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-foreground font-mono">Version v{h.version}</span>
+                        <span className="text-[10px] text-muted-foreground">{new Date(h.created_at).toLocaleString()}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1 font-mono">{h.prompt_text}</p>
+                    </div>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleRestore(h)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-border bg-muted/60 text-[10px] font-bold uppercase text-foreground hover:bg-muted transition"
+                      >
+                        <RotateCcw className="h-3 w-3" /> Restore
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

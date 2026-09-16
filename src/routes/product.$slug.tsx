@@ -1,152 +1,166 @@
-import { createFileRoute, Link, notFound, redirect } from "@tanstack/react-router";
-import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
-import { AppShell } from "@/components/AppShell";
-import { ProductCard } from "@/components/ProductCard";
-import { fetchProductBySlug, fetchRelatedProducts } from "@/lib/catalog";
-import { Heart, MessageCircle, X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, CheckCircle2, Layers, Sparkles, Compass } from "lucide-react";
-import { AddToCollectionButton } from "@/components/AddToCollectionButton";
-import { publicImageUrl } from "@/components/ImageUploader";
+import { createFileRoute, notFound, Link } from "@tanstack/react-router";
 import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useFavorites } from "@/hooks/useFavorites";
-import { supabase } from "@/integrations/supabase/client";
-
-import { getProductionOrigin } from "@/lib/origin";
-import { getCanonicalProductSlug, getCanonicalProductUrl, getCanonicalProductPath } from "@/lib/product-url";
-
-const productQuery = (slug: string) =>
-  queryOptions({
-    queryKey: ["product", slug],
-    queryFn: async () => {
-      const p = await fetchProductBySlug(slug);
-      if (!p) throw notFound();
-      return p;
-    },
-  });
-
-const relatedQuery = (familyId: string | null, excludeId: string) =>
-  queryOptions({
-    queryKey: ["related", familyId, excludeId],
-    queryFn: () => fetchRelatedProducts(familyId, excludeId),
-    enabled: !!familyId,
-  });
+import { AddToCollectionButton } from "@/components/AddToCollectionButton";
+import { ProductCard } from "@/components/ProductCard";
+import {
+  Heart,
+  MessageCircle,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  X,
+  Compass,
+  CheckCircle2,
+  Sparkles,
+} from "lucide-react";
+import { AppShell } from "@/components/AppShell";
+import { getCanonicalProductUrl, getCanonicalProductPath } from "@/lib/product-url";
+import { getCanonicalOrigin } from "@/lib/origin";
 
 export const Route = createFileRoute("/product/$slug")({
-  loader: async ({ context, params }) => {
-    const origin = getProductionOrigin();
-    const product = await context.queryClient.ensureQueryData(productQuery(params.slug));
+  loader: async ({ params }) => {
+    const origin = getCanonicalOrigin();
+    const { data: product, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("slug", params.slug)
+      .maybeSingle();
 
-    // Redirect unnormalized or legacy slug formats to canonical URL (HTTP 301)
-    const canonicalSlug = getCanonicalProductSlug(product);
-    if (params.slug !== canonicalSlug) {
-      throw redirect({
-        href: getCanonicalProductUrl(product, origin),
-        statusCode: 301,
-      });
+    if (error || !product) {
+      throw notFound();
     }
 
-    context.queryClient.ensureQueryData(relatedQuery(product.family_id, product.id));
+    // Load full hierarchical taxonomy
+    let typeData = null;
+    let categoryData = null;
+    let subcategoryData = null;
+    let familyData = null;
 
-    // Fetch taxonomy parents and product intelligence
-    const [typeRes, categoryRes, subcategoryRes, familyRes, understandingRes] = await Promise.all([
-      product.type_id
-        ? supabase.from("product_types").select("name, slug").eq("id", product.type_id).maybeSingle()
-        : Promise.resolve({ data: null }),
-      product.category_id
-        ? supabase.from("categories").select("name, slug").eq("id", product.category_id).maybeSingle()
-        : Promise.resolve({ data: null }),
-      product.subcategory_id
-        ? supabase.from("subcategories").select("name, slug").eq("id", product.subcategory_id).maybeSingle()
-        : Promise.resolve({ data: null }),
-      product.family_id
-        ? supabase.from("family_groups").select("name, slug").eq("id", product.family_id).maybeSingle()
-        : Promise.resolve({ data: null }),
-      supabase
-        .from("product_understanding")
-        .select("detected_visual_specs, faqs, structured_schema_org, generated_description")
-        .eq("product_id", product.id)
-        .maybeSingle(),
-    ]);
+    if (product.type_id) {
+      const { data } = await supabase
+        .from("product_types")
+        .select("id, name, slug")
+        .eq("id", product.type_id)
+        .maybeSingle();
+      typeData = data;
+    }
+
+    if (product.category_id) {
+      const { data } = await supabase
+        .from("categories")
+        .select("id, name, slug")
+        .eq("id", product.category_id)
+        .maybeSingle();
+      categoryData = data;
+    }
+
+    if (product.subcategory_id) {
+      const { data } = await supabase
+        .from("subcategories")
+        .select("id, name, slug")
+        .eq("id", product.subcategory_id)
+        .maybeSingle();
+      subcategoryData = data;
+    }
+
+    if (product.family_id) {
+      const { data } = await supabase
+        .from("family_groups")
+        .select("id, name")
+        .eq("id", product.family_id)
+        .maybeSingle();
+      familyData = data;
+    }
+
+    // Related products from the same family
+    let related: any[] = [];
+    if (product.family_id) {
+      const { data } = await supabase
+        .from("products")
+        .select("*")
+        .eq("family_id", product.family_id)
+        .neq("id", product.id)
+        .eq("status" as any, "published")
+        .eq("hidden", false)
+        .limit(4);
+      related = data || [];
+    }
 
     return {
       product,
       origin,
       taxonomy: {
-        type: typeRes.data,
-        category: categoryRes.data,
-        subcategory: subcategoryRes.data,
-        family: familyRes.data,
+        type: typeData,
+        category: categoryData,
+        subcategory: subcategoryData,
+        family: familyData,
       },
-      understanding: understandingRes.data,
+      related,
     };
   },
-  head: ({ loaderData }: any): any => {
-    const product = loaderData?.product;
-    const origin = loaderData?.origin || getProductionOrigin();
-    const title = product?.seo_title || `${product?.name || "Product"} — Enreach Concepts`;
-    const desc =
-      product?.seo_description ||
-      product?.short_description ||
-      "Explore luxury architectural building materials and finishes at Enreach Concepts digital showroom.";
-    const imageUrl = product?.generated_studio_image || product?.image_url || "";
-    const canonical = getCanonicalProductUrl(product, origin);
+  head: ({ loaderData }) => {
+    if (!loaderData?.product) {
+      return {
+        meta: [{ title: "Product Not Found | Enreach Concepts" }],
+      };
+    }
+    const { product, origin } = loaderData;
+    const metaTitle = product.seo_title || `${product.name} | Enreach Concepts Showroom`;
+    const metaDescription =
+      product.seo_description ||
+      product.short_description ||
+      `Discover ${product.name} at Enreach Concepts. Premium luxury building materials and architectural finishes in Abuja, Nigeria.`;
+
+    const canonicalUrl = getCanonicalProductUrl(product, origin);
+    const imageUrl = product.image_url || `${origin}/og-default.jpg`;
 
     return {
       meta: [
-        { title: title },
-        { name: "description", content: desc },
+        { title: metaTitle },
+        { name: "description", content: metaDescription },
+        { property: "og:title", content: metaTitle },
+        { property: "og:description", content: metaDescription },
         { property: "og:type", content: "product" },
-        { property: "og:title", content: title },
-        { property: "og:description", content: desc },
-        { property: "og:image", content: imageUrl ? publicImageUrl(imageUrl) : "" },
-        { property: "og:url", content: canonical },
+        { property: "og:url", content: canonicalUrl },
+        { property: "og:image", content: imageUrl },
         { name: "twitter:card", content: "summary_large_image" },
-        { name: "twitter:title", content: title },
-        { name: "twitter:description", content: desc },
-        { name: "twitter:image", content: imageUrl ? publicImageUrl(imageUrl) : "" },
+        { name: "twitter:title", content: metaTitle },
+        { name: "twitter:description", content: metaDescription },
+        { name: "twitter:image", content: imageUrl },
       ],
-      links: [{ rel: "canonical", href: canonical }],
+      links: [
+        { rel: "canonical", href: canonicalUrl },
+      ],
     };
   },
-  component: ProductPage,
-
-  notFoundComponent: () => (
-    <AppShell>
-      <div className="container-app py-16 text-center">
-        <h1 className="font-display text-2xl font-bold">Product not found</h1>
-        <p className="mt-2 text-sm text-muted-foreground">The product requested does not exist or has been relocated.</p>
-        <Link to="/" className="mt-4 inline-block text-primary underline font-medium">
-          Back to feed
-        </Link>
-      </div>
-    </AppShell>
-  ),
-  errorComponent: ({ error }) => (
-    <AppShell>
-      <div className="container-app py-16 text-center text-sm text-destructive">
-        <h2 className="font-semibold text-lg">Failed to load product page</h2>
-        <p className="mt-2 text-muted-foreground">{error.message}</p>
-        <Link to="/" className="mt-4 inline-block text-primary underline">
-          Back to feed
-        </Link>
-      </div>
-    </AppShell>
-  ),
+  component: ProductDetailPage,
 });
 
-function ProductPage() {
-  const { product, origin, taxonomy, understanding } = Route.useLoaderData();
-  const { data: related = [] } = useSuspenseQuery(relatedQuery(product.family_id, product.id));
+function publicImageUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+    return path;
+  }
+  const { data } = supabase.storage.from("product-media").getPublicUrl(path);
+  return data.publicUrl;
+}
 
+function ProductDetailPage() {
+  const { product, origin, taxonomy, related } = Route.useLoaderData();
   const { user } = useAuth();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const isFav = isFavorite(product.id);
+
+  const [activeImgIndex, setActiveImgIndex] = useState<number>(0);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
+  const [lightboxScale, setLightboxScale] = useState<number>(1);
   const [recommendations, setRecommendations] = useState<any[]>([]);
 
-  // Gallery slider & lightbox modal states
-  const [activeImgIndex, setActiveImgIndex] = useState(0);
-  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
-  const [lightboxScale, setLightboxScale] = useState(1);
+  const isFav = isFavorite(product.id);
 
   const studio = publicImageUrl(product.generated_studio_image) || publicImageUrl(product.image_url);
   const installed = publicImageUrl(product.generated_installed_image) || null;
@@ -159,7 +173,6 @@ function ProductPage() {
     if (!product?.id) return;
 
     if (user?.id) {
-      // Track page views
       const trackEvent = async () => {
         const { data: profile } = await supabase
           .from("profiles")
@@ -181,7 +194,6 @@ function ProductPage() {
       void trackEvent();
     }
 
-    // Load recommendations (different products)
     const loadRecs = async () => {
       const { data } = await supabase
         .from("products")
@@ -200,7 +212,6 @@ function ProductPage() {
     void toggleFavorite(product.id, product);
   };
 
-  // Breadcrumbs config with crawlable links
   const breadcrumbs = useMemo(() => {
     const list = [{ label: "Home", path: "/" }];
     if (taxonomy.type) {
@@ -230,7 +241,6 @@ function ProductPage() {
 
   const canonicalProductUrl = getCanonicalProductUrl(product, origin);
 
-  // 1. Breadcrumb Schema
   const breadcrumbSchema = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -242,7 +252,6 @@ function ProductPage() {
     })),
   };
 
-  // 2. Authoritative Single Product Schema.org Object
   const productSchema = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -250,101 +259,122 @@ function ProductPage() {
     image: galleryImages.map((img) => ({
       "@type": "ImageObject",
       url: img,
-      name: `${product.name} - ${product.brand || "Enreach Concepts"}`,
-      caption: product.seo_description || product.short_description || product.name,
     })),
-    description: product.seo_description || product.generated_description || product.short_description || "",
+    description: product.seo_description || product.short_description || product.generated_description || "",
     sku: product.code || product.id,
     mpn: product.code || product.id,
     brand: {
       "@type": "Brand",
       name: product.brand || "Enreach Concepts",
     },
-    material: product.material || undefined,
-    color: product.color || undefined,
-    category: taxonomy.subcategory?.name
-      ? `${taxonomy.category?.name || "Material"} > ${taxonomy.subcategory.name}`
-      : taxonomy.category?.name || "Material",
+    category: taxonomy.category?.name || "Building Materials",
     offers: {
       "@type": "Offer",
       url: canonicalProductUrl,
       priceCurrency: "NGN",
-      price: product.price || 0,
-      priceValidUntil: "2027-12-31",
+      price: Number(product.price) || 0,
       availability: "https://schema.org/InStock",
       itemCondition: "https://schema.org/NewCondition",
+      priceValidUntil: "2027-12-31",
       seller: {
         "@type": "Organization",
-        name: "Enreach Concepts",
-        url: origin,
+        name: "Enreach Concepts Digital Showroom",
       },
     },
   };
 
-  // 3. Product-Specific FAQs from Understanding or Product Record
-  const faqsList: Array<{ question: string; answer: string }> = useMemo(() => {
-    if (understanding?.faqs && Array.isArray(understanding.faqs) && understanding.faqs.length > 0) {
-      return understanding.faqs.map((f: any) => ({
-        question: f.question || f.q || "",
-        answer: f.answer || f.a || "",
-      })).filter((f: any) => f.question && f.answer);
-    }
-    if (product.faq && Array.isArray(product.faq) && product.faq.length > 0) {
-      return (product.faq as any[]).map((f: any) => ({
-        question: f.question || f.q || "",
-        answer: f.answer || f.a || "",
-      })).filter((f: any) => f.question && f.answer);
-    }
-    return [];
-  }, [understanding?.faqs, product.faq]);
+  const masterDoc = typeof product.master_document === "object" && product.master_document ? product.master_document : {};
+  const pricingUnit = product.pricing_unit || masterDoc.pricing_unit || "sqm";
+  const originalPrice = product.original_price != null ? product.original_price : (masterDoc.original_price ?? null);
+  const diffType = product.differentiator_type || masterDoc.differentiator_type || null;
+  const diffNote = product.differentiator_note || masterDoc.differentiator_note || null;
 
-  const faqSchema =
-    faqsList.length > 0
-      ? {
-          "@context": "https://schema.org",
-          "@type": "FAQPage",
-          mainEntity: faqsList.map((f) => ({
-            "@type": "Question",
-            name: f.question,
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: f.answer,
-            },
-          })),
-        }
-      : null;
+  const faqsList: { question: string; answer: string }[] = useMemo(() => {
+    const rawFaq = product.faq || masterDoc.faq;
+    if (!Array.isArray(rawFaq)) return [];
+    return rawFaq
+      .filter((f: any) => f && (f.question || f.q) && (f.answer || f.a))
+      .map((f: any) => ({
+        question: String(f.question || f.q).trim(),
+        answer: String(f.answer || f.a).trim(),
+      }));
+  }, [product.faq, masterDoc.faq]);
 
-  // Visual Characteristics from Build 4B Intelligence
-  const visualSpecs: Record<string, any> | null = useMemo(() => {
-    if (understanding?.detected_visual_specs && typeof understanding.detected_visual_specs === "object") {
-      return understanding.detected_visual_specs;
-    }
-    return null;
-  }, [understanding?.detected_visual_specs]);
+  const faqSchema = faqsList.length > 0 ? {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqsList.map((f) => ({
+      "@type": "Question",
+      name: f.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: f.answer,
+      },
+    })),
+  } : null;
 
-  const handleLightboxNav = (dir: "prev" | "next") => {
-    const idx = galleryImages.indexOf(lightboxImg || "");
-    if (idx === -1) return;
-    if (dir === "prev") {
-      const nextIdx = (idx - 1 + galleryImages.length) % galleryImages.length;
-      setLightboxImg(galleryImages[nextIdx]);
-    } else {
-      const nextIdx = (idx + 1) % galleryImages.length;
-      setLightboxImg(galleryImages[nextIdx]);
+  const dynamicApplications: string[] = useMemo(() => {
+    if (Array.isArray((product as any).applications) && (product as any).applications.length > 0) {
+      return (product as any).applications;
     }
+    if (Array.isArray(masterDoc.applications) && masterDoc.applications.length > 0) {
+      return masterDoc.applications;
+    }
+    const catName = taxonomy.category?.name || "Interiors";
+    const typeName = taxonomy.type?.name || "Surface";
+    return [
+      `Residential ${catName}`,
+      `Commercial ${catName}`,
+      `Feature ${typeName}`,
+      "Modern Architecture",
+    ];
+  }, [product, masterDoc, taxonomy]);
+
+  const applicationSummary: string = useMemo(() => {
+    if (typeof (product as any).application_summary === "string" && (product as any).application_summary.trim()) {
+      return (product as any).application_summary.trim();
+    }
+    if (typeof masterDoc.application_summary === "string" && masterDoc.application_summary.trim()) {
+      return masterDoc.application_summary.trim();
+    }
+    const typeName = taxonomy.type?.name || "Architectural Finish";
+    const mat = product.material || "premium surface";
+    return `Engineered for high-end residential and commercial installations requiring durable, aesthetically refined ${mat} ${typeName.toLowerCase()} solutions.`;
+  }, [product, masterDoc, taxonomy]);
+
+  const whatsappInquiryUrl = useMemo(() => {
+    const phone = "2347081593438";
+    const msg = `Hello Enreach Concepts, I am interested in ${product.name} (Code: ${product.code}, Price: ₦${Number(product.price).toLocaleString()}/${pricingUnit}). URL: ${canonicalProductUrl}`;
+    return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+  }, [product, canonicalProductUrl, pricingUnit]);
+
+  const customerNarrative = product.generated_description || product.short_description || "";
+
+  const visualSpecs = useMemo(() => {
+    const understanding = (product.ai_understanding as any) || (masterDoc.visual_characteristics as any) || {};
+    return {
+      material: product.material || understanding.material || null,
+      finish: product.finish || product.finish_name || understanding.finish || null,
+      color: product.color || understanding.color || null,
+      pattern: understanding.pattern || null,
+      style: understanding.style || null,
+      texture: understanding.texture || null,
+    };
+  }, [product, masterDoc]);
+
+  const handleLightboxNav = (direction: "prev" | "next") => {
+    if (!lightboxImg) return;
+    const currentIndex = galleryImages.indexOf(lightboxImg);
+    if (currentIndex === -1) return;
+    const nextIndex = direction === "next"
+      ? (currentIndex + 1) % galleryImages.length
+      : (currentIndex - 1 + galleryImages.length) % galleryImages.length;
+    setLightboxImg(galleryImages[nextIndex]);
     setLightboxScale(1);
   };
 
-  const whatsappInquiryUrl = `https://wa.me/2349090000000?text=${encodeURIComponent(
-    `Hello Enreach Concepts, I am inquiring about ${product.name} (Product Code: ${product.code}). Please confirm availability and consultation details.`
-  )}`;
-
-  const customerNarrative =
-    product.generated_description || product.short_description || product.description || "";
-
   return (
     <AppShell>
-      {/* Canonical Single Product Schema.org & Discovery Injections */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productSchema) }} />
       {faqSchema && (
@@ -352,7 +382,7 @@ function ProductPage() {
       )}
 
       <div className="container-app pt-2 pb-14">
-        {/* 1. BREADCRUMBS (Crawlable Taxonomy Navigation) */}
+        {/* 1. BREADCRUMBS */}
         <nav
           aria-label="Breadcrumb"
           className="flex items-center gap-1.5 overflow-x-auto pb-3 text-[10px] uppercase tracking-wider text-muted-foreground scrollbar-none"
@@ -371,9 +401,8 @@ function ProductPage() {
           ))}
         </nav>
 
-        {/* 2. PRODUCT GALLERY (Studio View + Installed Scene Reference) */}
+        {/* 2. PRODUCT GALLERY */}
         <div className="mt-3 grid gap-4 md:grid-cols-2">
-          {/* Main Studio Image */}
           <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm aspect-square flex items-center justify-center">
             {galleryImages[activeImgIndex] ? (
               <img
@@ -387,7 +416,6 @@ function ProductPage() {
             )}
           </div>
 
-          {/* Installed Reference Layout */}
           <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm flex flex-col justify-between aspect-square">
             <div className="flex-1 overflow-hidden">
               {installed ? (
@@ -410,7 +438,6 @@ function ProductPage() {
           </div>
         </div>
 
-        {/* Thumbnail Selector Bar */}
         {galleryImages.length > 1 && (
           <div className="flex gap-2.5 mt-3 overflow-x-auto pb-1 scrollbar-none">
             {galleryImages.map((imgUrl, i) => (
@@ -438,21 +465,21 @@ function ProductPage() {
               {product.name}
             </h1>
             <div className="mt-2 flex items-baseline gap-3 flex-wrap">
-              {product.original_price != null && Number(product.original_price) > Number(product.price) && (
+              {originalPrice != null && Number(originalPrice) > Number(product.price) && (
                 <span className="line-through text-lg font-normal text-destructive">
-                  ₦{Number(product.original_price).toLocaleString()}
+                  ₦{Number(originalPrice).toLocaleString()}
                 </span>
               )}
               <p className="font-display text-2xl sm:text-3xl font-bold text-primary">
                 ₦{Number(product.price).toLocaleString()}
                 <span className="ml-1 text-sm font-normal text-muted-foreground">
-                  /{product.pricing_unit || "sqm"}
+                  /{pricingUnit}
                 </span>
               </p>
             </div>
           </div>
 
-          {/* 6. ACTION CONTROLS (Collection, Favorites, WhatsApp) */}
+          {/* 6. ACTION CONTROLS */}
           <div className="flex flex-wrap gap-2.5 max-w-lg pt-1">
             <AddToCollectionButton
               productId={product.id}
@@ -481,7 +508,7 @@ function ProductPage() {
             </a>
           </div>
 
-          {/* 7. PRODUCT SUMMARY (Customer-Facing Narrative) */}
+          {/* 7. PRODUCT SUMMARY */}
           {customerNarrative && (
             <div className="mt-4 rounded-xl border border-border/80 bg-card p-4 text-xs leading-relaxed text-muted-foreground max-w-prose shadow-sm">
               <h2 className="font-display text-xs font-bold uppercase tracking-wider text-foreground mb-1.5">
@@ -515,12 +542,12 @@ function ProductPage() {
                   <dd className="mt-1 font-semibold text-foreground text-xs">{taxonomy.subcategory.name}</dd>
                 </div>
               )}
-              {product.differentiator_note && (
+              {diffNote && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 shadow-sm">
                   <dt className="text-[9px] font-bold uppercase tracking-wider text-primary">
-                    {product.differentiator_type || "Variation"}
+                    {diffType || "Variation"}
                   </dt>
-                  <dd className="mt-1 font-semibold text-foreground text-xs">{product.differentiator_note}</dd>
+                  <dd className="mt-1 font-semibold text-foreground text-xs">{diffNote}</dd>
                 </div>
               )}
               {[
@@ -529,7 +556,7 @@ function ProductPage() {
                 ["Color", product.color],
                 ["Size", product.size],
                 ["SKU / Code", product.code],
-                ["Pricing Unit", product.pricing_unit || "sqm"],
+                ["Pricing Unit", pricingUnit],
               ].map(([k, v]) =>
                 v ? (
                   <div key={k as string} className="rounded-lg border border-border bg-card p-3 shadow-sm">
@@ -541,7 +568,7 @@ function ProductPage() {
             </dl>
           </div>
 
-          {/* 9. VISUAL CHARACTERISTICS (Build 4B Intelligence) */}
+          {/* 9. VISUAL CHARACTERISTICS */}
           {visualSpecs && Object.keys(visualSpecs).length > 0 && (
             <div className="mt-4 max-w-xl">
               <h2 className="font-display text-xs font-bold uppercase tracking-wider text-foreground mb-2 flex items-center gap-1.5">
@@ -564,18 +591,15 @@ function ProductPage() {
             </div>
           )}
 
-          {/* 10. APPLICATIONS / SUITABLE SPACES */}
+          {/* 10. DYNAMIC APPLICATIONS & SUITABLE SPACES */}
           <div className="mt-4 max-w-xl">
             <h2 className="font-display text-xs font-bold uppercase tracking-wider text-foreground mb-2 flex items-center gap-1.5">
               <Compass className="h-3.5 w-3.5 text-primary" /> Suitable Spaces & Applications
             </h2>
             <div className="rounded-xl border border-border/80 bg-card p-4 text-xs space-y-2 text-muted-foreground shadow-sm">
-              <p>
-                Suitable for luxury residential and commercial architectural installations, including living areas,
-                hallways, premium feature surfaces, and modern interior/exterior concepts.
-              </p>
+              <p>{applicationSummary}</p>
               <div className="flex flex-wrap gap-2 pt-1">
-                {["Residential Living", "Commercial Showroom", "Feature Surfaces", "Modern Interiors"].map((space) => (
+                {dynamicApplications.map((space) => (
                   <span
                     key={space}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-muted/60 text-[10px] font-medium text-foreground"
@@ -625,7 +649,7 @@ function ProductPage() {
           </section>
         )}
 
-        {/* 13. RECOMMENDED PRODUCTS (LAST SUBSTANTIVE SECTION) */}
+        {/* 13. RECOMMENDED PRODUCTS */}
         {recommendations.length > 0 && (
           <section className="mt-12 border-t border-border pt-8">
             <h2 className="font-display text-[10px] font-bold uppercase tracking-[0.18em] text-primary">

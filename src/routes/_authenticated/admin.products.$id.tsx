@@ -1,91 +1,108 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { ArrowLeft, Sparkles, Trash2, Globe, Search, ChevronDown, ChevronUp, Image, Layers, Cpu, ShieldCheck } from "lucide-react";
-import { useServerFn } from "@tanstack/react-start";
-import { runProductPipeline } from "@/lib/ai-pipeline.functions";
-import { generateStandaloneLifestyleImage } from "@/lib/lifestyle-image.functions";
-import { runProductDetailsEngine } from "@/lib/product-details.functions";
-import { ImageUploader, ImageTile, publicImageUrl } from "@/components/ImageUploader";
+import { ImageUploader } from "@/components/ImageUploader";
 import { ImageEditorModal } from "@/components/ImageEditorModal";
 import { triggerSitemapUpdate } from "@/lib/seo-publisher";
+import { generateStandaloneLifestyleImage } from "@/lib/lifestyle-image.functions";
+import { runProductDetailsEngine } from "@/lib/product-details.functions";
+import { useServerFn } from "@tanstack/react-start";
+import {
+  ArrowLeft,
+  Sparkles,
+  Layers,
+  Search,
+  Globe,
+  Tag,
+  Cpu,
+  HelpCircle,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Compass,
+} from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/products/$id")({
-  component: RebuiltEditProductPage,
+  head: () => ({ meta: [{ title: "Edit Product — Admin" }] }),
+  component: AdminProductEditPage,
 });
 
-type Tax = { id: string; name: string };
-type Cat = Tax & { type_id: string };
-type Sub = Tax & { category_id: string };
-type Fam = Tax & { subcategory_id: string };
+function publicImageUrl(path: string | null | undefined): string {
+  if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) return path;
+  const { data } = supabase.storage.from("product-media").getPublicUrl(path);
+  return data.publicUrl;
+}
 
-function RebuiltEditProductPage() {
+function AdminProductEditPage() {
   const { id } = Route.useParams();
-  const navigate = useNavigate();
-
   const [p, setP] = useState<any>(null);
-  const [types, setTypes] = useState<(Tax & { code_prefix?: string })[]>([]);
-  const [cats, setCats] = useState<Cat[]>([]);
-  const [subs, setSubs] = useState<Sub[]>([]);
-  const [fams, setFams] = useState<Fam[]>([]);
-
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [types, setTypes] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [subcategories, setSubcategories] = useState<any[]>([]);
+  const [families, setFamilies] = useState<any[]>([]);
+  const [contexts, setContexts] = useState<any[]>([]);
   const [generatingDetails, setGeneratingDetails] = useState(false);
   const [generatingLifestyle, setGeneratingLifestyle] = useState(false);
   const [runningPipeline, setRunningPipeline] = useState(false);
-
-  // Photo Editor Modal State
+  const [showAdvancedAi, setShowAdvancedAi] = useState(true);
+  const [showSeoSection, setShowSeoSection] = useState(true);
+  const [showSearchSection, setShowSearchSection] = useState(true);
+  const [showFaqSection, setShowFaqSection] = useState(true);
+  const [showApplicationsSection, setShowApplicationsSection] = useState(true);
   const [editingImage, setEditingImage] = useState<{ url: string; target: "image_url" | "generated_installed_image" } | null>(null);
 
-  // Collapsible section toggles (Default Collapsed)
-  const [showAdvancedAi, setShowAdvancedAi] = useState(false);
-  const [showSeoSection, setShowSeoSection] = useState(false);
-  const [showSearchSection, setShowSearchSection] = useState(false);
-
+  // TanStack Start Server Functions
   const runDetailsFn = useServerFn(runProductDetailsEngine);
   const generateLifestyleFn = useServerFn(generateStandaloneLifestyleImage);
-  const runPipelineFn = useServerFn(runProductPipeline);
 
-  const load = useCallback(async () => {
-    const { data, error } = await supabase.from("products").select("*").eq("id", id).maybeSingle();
-    if (error) return toast.error(error.message);
-    if (!data) return toast.error("Product not found");
-    setP(data);
-  }, [id]);
-
-  useEffect(() => {
-    load();
-    (async () => {
-      const [t, c, s, f] = await Promise.all([
-        supabase.from("product_types").select("id,name").order("name"),
-        supabase.from("categories").select("id,name,type_id").order("name"),
-        supabase.from("subcategories").select("id,name,category_id").order("name"),
-        supabase.from("family_groups").select("id,name,subcategory_id").order("name"),
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [prodRes, typesRes, catsRes, subsRes, famsRes, ctxRes] = await Promise.all([
+        supabase.from("products").select("*").eq("id", id).maybeSingle(),
+        supabase.from("product_types").select("*").order("name"),
+        supabase.from("categories").select("*").order("name"),
+        supabase.from("subcategories").select("*").order("name"),
+        supabase.from("family_groups").select("*").order("name"),
+        supabase.from("installation_contexts").select("*").order("name"),
       ]);
-      setTypes((t.data ?? []) as any);
-      setCats((c.data ?? []) as any);
-      setSubs((s.data ?? []) as any);
-      setFams((f.data ?? []) as any);
-    })();
-  }, [id, load]);
 
-  const filteredCats = useMemo(() => cats.filter((c) => c.type_id === p?.type_id), [cats, p?.type_id]);
-  const filteredSubs = useMemo(() => subs.filter((s) => s.category_id === p?.category_id), [subs, p?.category_id]);
-  const filteredFams = useMemo(() => fams.filter((f) => f.subcategory_id === p?.subcategory_id), [fams, p?.subcategory_id]);
+      if (prodRes.error) throw prodRes.error;
+      if (!prodRes.data) throw new Error("Product not found");
 
-  if (!p) return <div className="container-app py-10 text-sm text-muted-foreground font-mono">Loading product data…</div>;
+      const masterDoc = typeof prodRes.data.master_document === "object" && prodRes.data.master_document ? prodRes.data.master_document : {};
+      setP({
+        ...prodRes.data,
+        original_price: prodRes.data.original_price ?? masterDoc.original_price ?? "",
+        pricing_unit: prodRes.data.pricing_unit || masterDoc.pricing_unit || "sqm",
+        differentiator_type: prodRes.data.differentiator_type || masterDoc.differentiator_type || "",
+        differentiator_note: prodRes.data.differentiator_note || masterDoc.differentiator_note || "",
+        applications: prodRes.data.applications || masterDoc.applications || [],
+        application_summary: prodRes.data.application_summary || masterDoc.application_summary || "",
+        faq: Array.isArray(prodRes.data.faq) ? prodRes.data.faq : (Array.isArray(masterDoc.faq) ? masterDoc.faq : []),
+      });
+      setTypes(typesRes.data || []);
+      setCategories(catsRes.data || []);
+      setSubcategories(subsRes.data || []);
+      setFamilies(famsRes.data || []);
+      setContexts(ctxRes.data || []);
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to load product");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, [id]);
 
   const setField = (key: string, value: any) => {
-    setP((prev: any) => {
-      const next = { ...prev, [key]: value };
-      if (key === "short_description" || key === "generated_description") {
-        next.short_description = value;
-        next.generated_description = value;
-      }
-      return next;
-    });
+    setP((prev: any) => ({ ...prev, [key]: value }));
     setIsDirty(true);
   };
 
@@ -109,42 +126,58 @@ function RebuiltEditProductPage() {
 
   // ENGINE 2 Execution
   const handleGenerateLifestyle = async () => {
-    if (!p.image_url) {
-      toast.error("Original product image is required before generating an installed image.");
+    if (!p?.image_url) {
+      toast.error("Please upload an Original Product Image first.");
       return;
     }
     setGeneratingLifestyle(true);
     try {
       const res = await generateLifestyleFn({ data: { productId: id } });
-      if (res.ok) {
+      if (res.ok && res.imageUrl) {
         toast.success("Engine 2: Installed lifestyle image generated!");
         await load();
       } else {
         toast.error("Failed to generate installed image.");
       }
     } catch (e: any) {
-      toast.error(e.message ?? "Generation failed");
+      toast.error(e.message ?? "Image generation failed");
     } finally {
       setGeneratingLifestyle(false);
     }
   };
 
-  // Full Pipeline Execution
+  // Full Pipeline Runner
   const handleRunFullPipeline = async () => {
     setRunningPipeline(true);
-    try {
-      const res = await runPipelineFn({ data: { productId: id } });
-      if (res.ok) {
-        toast.success("Full AI pipeline completed!");
-        await load();
-      } else {
-        toast.error("Pipeline run failed.");
-      }
-    } catch (e: any) {
-      toast.error(e.message ?? "Pipeline run failed");
-    } finally {
-      setRunningPipeline(false);
+    await handleGenerateDetails();
+    if (p?.image_url) {
+      await handleGenerateLifestyle();
     }
+    setRunningPipeline(false);
+    toast.success("Full AI pipeline completed!");
+  };
+
+  // FAQ Handlers
+  const handleAddFaq = () => {
+    const currentFaqs = Array.isArray(p.faq) ? p.faq : [];
+    if (currentFaqs.length >= 2) {
+      toast.error("Maximum 2 product-specific FAQs permitted.");
+      return;
+    }
+    setField("faq", [...currentFaqs, { question: "", answer: "" }]);
+  };
+
+  const handleUpdateFaq = (index: number, field: "question" | "answer", value: string) => {
+    const currentFaqs = Array.isArray(p.faq) ? [...p.faq] : [];
+    if (!currentFaqs[index]) return;
+    currentFaqs[index] = { ...currentFaqs[index], [field]: value };
+    setField("faq", currentFaqs);
+  };
+
+  const handleRemoveFaq = (index: number) => {
+    const currentFaqs = Array.isArray(p.faq) ? [...p.faq] : [];
+    currentFaqs.splice(index, 1);
+    setField("faq", currentFaqs);
   };
 
   // SAVE HANDLER
@@ -152,6 +185,24 @@ function RebuiltEditProductPage() {
     setSaving(true);
     const prodDesc = p.generated_description || p.short_description || null;
     const seoDesc = p.seo_description || null;
+    const masterDoc = typeof p.master_document === "object" && p.master_document ? p.master_document : {};
+
+    const updatedMasterDoc = {
+      ...masterDoc,
+      name: p.name,
+      brand: p.brand,
+      description: prodDesc,
+      seo_title: p.seo_title,
+      seo_description: seoDesc,
+      faq: p.faq,
+      applications: Array.isArray(p.applications) ? p.applications : (typeof p.applications === "string" ? p.applications.split(",").map((s: string) => s.trim()).filter(Boolean) : []),
+      application_summary: p.application_summary || "",
+      pricing_unit: p.pricing_unit || "sqm",
+      differentiator_type: p.differentiator_type || null,
+      differentiator_note: (p.differentiator_note || "").trim() || null,
+      original_price: p.original_price ? Number(p.original_price) : null,
+    };
+
     const payload = {
       ...p,
       short_description: prodDesc,
@@ -163,12 +214,15 @@ function RebuiltEditProductPage() {
       pricing_unit: p.pricing_unit || "sqm",
       differentiator_type: p.differentiator_type || null,
       differentiator_note: (p.differentiator_note || "").trim() || null,
+      master_document: updatedMasterDoc,
       processing_state: "completed",
     };
     delete payload.id;
     delete payload.created_at;
     delete payload.updated_at;
     delete payload.similar_product_ids;
+    delete payload.applications;
+    delete payload.application_summary;
 
     const { error } = await supabase.from("products").update(payload as any).eq("id", id);
     if (error) {
@@ -177,7 +231,9 @@ function RebuiltEditProductPage() {
     }
 
     // Rebuild search index & trigger SEO discovery sitemap update
-    await supabase.rpc("rebuild_search_index" as any, { _product_id: id } as any);
+    try {
+      await supabase.rpc("rebuild_search_index" as any, { _product_id: id } as any);
+    } catch {}
     await triggerSitemapUpdate(id);
 
     setSaving(false);
@@ -188,6 +244,20 @@ function RebuiltEditProductPage() {
 
   const arrToStr = (v: any) => (Array.isArray(v) ? v.join(", ") : v ?? "");
   const strToArr = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolean);
+
+  if (loading) {
+    return (
+      <div className="container-app py-12 text-center text-xs text-muted-foreground font-mono">
+        Loading product details…
+      </div>
+    );
+  }
+
+  if (!p) return null;
+
+  const filteredCats = categories.filter((c) => !p.type_id || c.type_id === p.type_id);
+  const filteredSubs = subcategories.filter((s) => !p.category_id || s.category_id === p.category_id);
+  const filteredFams = families.filter((f) => !p.subcategory_id || f.subcategory_id === p.subcategory_id);
 
   return (
     <div className="container-app py-6 max-w-5xl space-y-6">
@@ -204,7 +274,7 @@ function RebuiltEditProductPage() {
           <button
             onClick={save}
             disabled={saving}
-            className="rounded bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:bg-primary/95 transition shadow-sm"
+            className="rounded bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:bg-primary/95 transition shadow-sm disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save Changes"}
           </button>
@@ -274,9 +344,9 @@ function RebuiltEditProductPage() {
           </div>
         </div>
 
-        {/* Product Fields */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-2">
+        {/* Identity & Technical Specs */}
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Product Name *</label>
             <input
               type="text"
@@ -286,7 +356,7 @@ function RebuiltEditProductPage() {
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Product Code</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Product Code / SKU</label>
             <input
               type="text"
               value={p.code || ""}
@@ -294,72 +364,12 @@ function RebuiltEditProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-mono"
             />
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-4">
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Brand</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Brand / Manufacturer</label>
             <input
               type="text"
               value={p.brand || ""}
               onChange={(e) => setField("brand", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Selling Price (NGN) *</label>
-            <input
-              type="number"
-              value={p.price || 0}
-              onChange={(e) => setField("price", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Original Price (NGN)</label>
-            <input
-              type="number"
-              placeholder="Optional regular price"
-              value={p.original_price ?? ""}
-              onChange={(e) => setField("original_price", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pricing Unit *</label>
-            <select
-              value={p.pricing_unit || "sqm"}
-              onChange={(e) => setField("pricing_unit", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            >
-              <option value="sqm">sqm (m²)</option>
-              <option value="piece">piece</option>
-              <option value="set">set</option>
-              <option value="carton">carton</option>
-              <option value="box">box</option>
-              <option value="metre">metre</option>
-              <option value="roll">roll</option>
-              <option value="unit">unit</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Size / Dimension</label>
-            <input
-              type="text"
-              value={p.size || ""}
-              onChange={(e) => setField("size", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Finish</label>
-            <input
-              type="text"
-              value={p.finish_name || p.finish || ""}
-              onChange={(e) => setField("finish_name", e.target.value)}
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
@@ -372,11 +382,17 @@ function RebuiltEditProductPage() {
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             />
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Color</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Finish</label>
+            <input
+              type="text"
+              value={p.finish || p.finish_name || ""}
+              onChange={(e) => setField("finish", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Color / Pattern</label>
             <input
               type="text"
               value={p.color || ""}
@@ -385,131 +401,408 @@ function RebuiltEditProductPage() {
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Type</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dimensions / Size</label>
+            <input
+              type="text"
+              value={p.size || ""}
+              onChange={(e) => setField("size", e.target.value)}
+              placeholder="e.g. 60x120 cm"
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Installation Context</label>
             <select
-              value={p.differentiator_type || ""}
-              onChange={(e) => setField("differentiator_type", e.target.value)}
+              value={p.installation_context_id || ""}
+              onChange={(e) => setField("installation_context_id", e.target.value)}
               className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
             >
-              <option value="">None (Standard)</option>
-              <option value="Pattern">Pattern</option>
-              <option value="Finish">Finish</option>
-              <option value="Color Shade">Color Shade</option>
-              <option value="Veining">Veining</option>
-              <option value="Texture">Texture</option>
-              <option value="Edge Profile">Edge Profile</option>
-              <option value="Hardware">Hardware</option>
-              <option value="Design Style">Design Style</option>
-              <option value="Other">Other</option>
+              <option value="">Select Context…</option>
+              {contexts.map((ctx) => (
+                <option key={ctx.id} value={ctx.id}>{ctx.name}</option>
+              ))}
             </select>
           </div>
           <div>
-            <div className="flex items-center justify-between">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Note</label>
-              <span className="text-[9px] text-muted-foreground">{(p.differentiator_note || "").length}/80</span>
-            </div>
-            <input
-              type="text"
-              maxLength={80}
-              placeholder="e.g. Bookmatched / Gold Handles"
-              value={p.differentiator_note || ""}
-              onChange={(e) => setField("differentiator_note", e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-            />
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Publishing Status</label>
+            <select
+              value={p.status || "published"}
+              onChange={(e) => setField("status", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-semibold"
+            >
+              <option value="published">Published (Visible in Showroom)</option>
+              <option value="draft">Draft (Hidden)</option>
+              <option value="archived">Archived</option>
+            </select>
           </div>
         </div>
       </section>
 
-      {/* SECTION 2: Images */}
+      {/* SECTION 2: Media Assets */}
       <section className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-3">
-          <Image className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 2 — Images</h2>
+          <Tag className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 2 — Media Assets</h2>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Original Image */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Main Original Image */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-foreground">Original Manufacturer Image *</label>
-              <span className="text-[10px] text-muted-foreground">Source of Truth</span>
-            </div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Original Studio Product Image *</label>
             {p.image_url ? (
-              <ImageTile
-                url={publicImageUrl(p.image_url) || p.image_url}
-                onDelete={() => setField("image_url", null)}
-                onEdit={() => setEditingImage({ url: publicImageUrl(p.image_url) || p.image_url, target: "image_url" })}
-                badge="Original"
-              />
+              <div className="relative aspect-square max-w-sm rounded-lg border border-border overflow-hidden bg-background">
+                <img src={publicImageUrl(p.image_url) || p.image_url} alt="Original product" className="w-full h-full object-cover" />
+                <div className="absolute top-2 right-2 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingImage({ url: publicImageUrl(p.image_url) || p.image_url, target: "image_url" })}
+                    className="p-1.5 bg-background/80 hover:bg-background rounded shadow text-xs font-semibold"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setField("image_url", null)}
+                    className="p-1.5 bg-destructive text-destructive-foreground rounded shadow text-xs"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
             ) : (
               <ImageUploader multiple={false} onUploaded={(paths) => setField("image_url", paths[0])} label="Upload Original Product Image" />
             )}
           </div>
 
-          {/* Installed Image */}
+          {/* Installed Lifestyle Reference */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-foreground">Finished Installation Image</label>
-              <span className="text-[10px] text-muted-foreground">Lifestyle Reference</span>
-            </div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Installed Scene Reference (Engine 2)</label>
             {p.generated_installed_image ? (
-              <ImageTile
-                url={publicImageUrl(p.generated_installed_image) || p.generated_installed_image}
-                onDelete={() => setField("generated_installed_image", null)}
-                onEdit={() => setEditingImage({ url: publicImageUrl(p.generated_installed_image) || p.generated_installed_image, target: "generated_installed_image" })}
-                badge="Installed Scene"
-              />
+              <div className="relative aspect-square max-w-sm rounded-lg border border-border overflow-hidden bg-background">
+                <img src={publicImageUrl(p.generated_installed_image) || p.generated_installed_image} alt="Installed scene" className="w-full h-full object-cover" />
+                <div className="absolute top-2 right-2 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingImage({ url: publicImageUrl(p.generated_installed_image) || p.generated_installed_image, target: "generated_installed_image" })}
+                    className="p-1.5 bg-background/80 hover:bg-background rounded shadow text-xs font-semibold"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setField("generated_installed_image", null)}
+                    className="p-1.5 bg-destructive text-destructive-foreground rounded shadow text-xs"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
             ) : (
               <ImageUploader multiple={false} onUploaded={(paths) => setField("generated_installed_image", paths[0])} label="Upload Installed Image" />
             )}
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleGenerateLifestyle}
-                disabled={generatingLifestyle || !p.image_url}
-                className="w-full flex items-center justify-center gap-2 rounded border border-primary/30 bg-primary/10 px-4 py-2.5 text-xs font-bold text-primary hover:bg-primary/20 transition disabled:opacity-50"
-              >
-                <Sparkles className="h-4 w-4" />
-                {generatingLifestyle ? "Engine 2 Generating Installed Image…" : "Generate Installed Image (Engine 2)"}
-              </button>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 3: Commercial & Differentiator Data */}
+      <section className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 border-b border-border pb-3">
+          <Tag className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 3 — Commercial & Differentiator Data</h2>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Current Selling Price (₦) *</label>
+            <input
+              type="number"
+              value={p.price || ""}
+              onChange={(e) => setField("price", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-semibold"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Original Price (₦, Optional Anchor)</label>
+            <input
+              type="number"
+              value={p.original_price || ""}
+              onChange={(e) => setField("original_price", e.target.value)}
+              placeholder="e.g. 35000"
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Pricing Unit *</label>
+            <select
+              value={p.pricing_unit || "sqm"}
+              onChange={(e) => setField("pricing_unit", e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-semibold"
+            >
+              <option value="sqm">sqm (Per Square Metre)</option>
+              <option value="piece">piece (Per Individual Item)</option>
+              <option value="set">set (Per Set / Pair)</option>
+              <option value="carton">carton (Per Carton / Box)</option>
+              <option value="box">box (Per Box)</option>
+              <option value="metre">metre (Per Linear Metre)</option>
+              <option value="roll">roll (Per Roll)</option>
+              <option value="unit">unit (Per Single Unit)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Differentiator Fields */}
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h3 className="font-display text-xs font-bold uppercase tracking-wider text-primary">
+              Product Differentiator (Authoritative Signal)
+            </h3>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Type</label>
+              <input
+                type="text"
+                value={p.differentiator_type || ""}
+                onChange={(e) => setField("differentiator_type", e.target.value)}
+                placeholder="e.g. Large Format, Wall Mounted, Handcrafted"
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Differentiator Note</label>
+              <input
+                type="text"
+                value={p.differentiator_note || ""}
+                onChange={(e) => setField("differentiator_note", e.target.value)}
+                placeholder="e.g. 120cm slab format suitable for expansive luxury surfaces."
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+              />
             </div>
           </div>
         </div>
       </section>
 
-      {/* SECTION 3: Publishing */}
+      {/* SECTION 4: Product Narrative & Descriptions */}
       <section className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-4">
         <div className="flex items-center gap-2 border-b border-border pb-3">
-          <ShieldCheck className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 3 — Publishing Settings</h2>
+          <Globe className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 4 — Product Narrative</h2>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <select
-              value={p.status || "published"}
-              onChange={(e) => setField("status", e.target.value)}
-              className="rounded-md border border-input bg-background p-2 text-xs font-semibold"
-            >
-              <option value="published">Status: Published</option>
-              <option value="draft">Status: Draft</option>
-              <option value="review">Status: Review</option>
-              <option value="archived">Status: Archived</option>
-            </select>
-          </div>
-
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving}
-            className="rounded bg-primary px-5 py-2 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:bg-primary/95 transition shadow-sm"
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
+        <div>
+          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Customer-Facing Showroom Narrative (Rich Description)
+          </label>
+          <textarea
+            rows={5}
+            value={p.generated_description || p.short_description || ""}
+            onChange={(e) => setField("generated_description", e.target.value)}
+            placeholder="Rich architectural copywriting for the showroom..."
+            className="mt-1 w-full rounded-md border border-input bg-background p-3 text-xs leading-relaxed"
+          />
         </div>
       </section>
 
-      {/* SECTION 4: Advanced AI (Collapsed by default) */}
+      {/* SECTION 5: Suitable Spaces & Applications */}
+      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowApplicationsSection(!showApplicationsSection)}
+          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Compass className="h-4 w-4 text-primary" />
+            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 5 — Suitable Spaces & Applications</h2>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Dynamic AI Context</span>
+          </div>
+          {showApplicationsSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {showApplicationsSection && (
+          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Application Summary</label>
+              <input
+                type="text"
+                value={p.application_summary || ""}
+                onChange={(e) => setField("application_summary", e.target.value)}
+                placeholder="e.g. Engineered for high-end residential and commercial installations..."
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suitable Spaces (Comma-Separated)</label>
+              <input
+                type="text"
+                value={arrToStr(p.applications)}
+                onChange={(e) => setField("applications", strToArr(e.target.value))}
+                placeholder="e.g. Master Bathroom Walls, Luxury Kitchen Islands, Commercial Flooring"
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 6: Product-Specific FAQs */}
+      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowFaqSection(!showFaqSection)}
+          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
+        >
+          <div className="flex items-center gap-2">
+            <HelpCircle className="h-4 w-4 text-primary" />
+            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 6 — Product-Specific FAQs</h2>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">0-2 Items Max</span>
+          </div>
+          {showFaqSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {showFaqSection && (
+          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
+            {Array.isArray(p.faq) && p.faq.length > 0 ? (
+              <div className="space-y-3">
+                {p.faq.map((f: any, i: number) => (
+                  <div key={i} className="rounded-lg border border-border bg-background p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-primary font-mono">FAQ #{i + 1}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFaq(i)}
+                        className="text-destructive hover:text-destructive/80 text-xs p-1"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={f.question || f.q || ""}
+                      onChange={(e) => handleUpdateFaq(i, "question", e.target.value)}
+                      placeholder="Question..."
+                      className="w-full rounded border border-input bg-background p-2 text-xs font-semibold"
+                    />
+                    <textarea
+                      rows={2}
+                      value={f.answer || f.a || ""}
+                      onChange={(e) => handleUpdateFaq(i, "answer", e.target.value)}
+                      placeholder="Answer..."
+                      className="w-full rounded border border-input bg-background p-2 text-xs leading-relaxed"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No FAQs recorded. Add up to 2 product-specific FAQs or generate with Engine 1.</p>
+            )}
+
+            {(!Array.isArray(p.faq) || p.faq.length < 2) && (
+              <button
+                type="button"
+                onClick={handleAddFaq}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Product FAQ
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 7: Google SEO & Metadata */}
+      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSeoSection(!showSeoSection)}
+          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-primary" />
+            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 7 — Google SEO & Metadata</h2>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Google Search Snippet</span>
+          </div>
+          {showSeoSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {showSeoSection && (
+          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Title</label>
+              <input
+                type="text"
+                value={p.seo_title || ""}
+                onChange={(e) => setField("seo_title", e.target.value)}
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Meta Description (Search Snippet)</label>
+              <textarea
+                rows={3}
+                value={p.seo_description || ""}
+                onChange={(e) => setField("seo_description", e.target.value)}
+                placeholder="Concise search engine snippet (under 160 characters)..."
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs leading-relaxed"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Keywords (Comma Separated)</label>
+                <input
+                  type="text"
+                  value={arrToStr(p.seo_keywords)}
+                  onChange={(e) => setField("seo_keywords", strToArr(e.target.value))}
+                  className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Canonical Slug</label>
+                <input
+                  type="text"
+                  value={p.canonical_slug || p.slug || ""}
+                  onChange={(e) => setField("canonical_slug", e.target.value)}
+                  className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-mono"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 8: Search Intelligence Index */}
+      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowSearchSection(!showSearchSection)}
+          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
+        >
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-primary" />
+            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 8 — Search Intelligence Index</h2>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Showroom & Full Text</span>
+          </div>
+          {showSearchSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {showSearchSection && (
+          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Unified Search Keywords & Synonyms</label>
+              <textarea
+                rows={3}
+                value={arrToStr(p.app_keywords || p.app_search_keywords)}
+                onChange={(e) => setField("app_keywords", strToArr(e.target.value))}
+                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-mono"
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 9: Advanced AI Operations */}
       <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <button
           type="button"
@@ -518,7 +811,7 @@ function RebuiltEditProductPage() {
         >
           <div className="flex items-center gap-2">
             <Cpu className="h-4 w-4 text-primary" />
-            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 4 — Advanced AI Operations</h2>
+            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 9 — Advanced AI Operations</h2>
             <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Engine 1 & Engine 2</span>
           </div>
           {showAdvancedAi ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -574,99 +867,7 @@ function RebuiltEditProductPage() {
         )}
       </section>
 
-      {/* SECTION 5: SEO (Collapsed by default) */}
-      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowSeoSection(!showSeoSection)}
-          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
-        >
-          <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-primary" />
-            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 5 — Google SEO & Metadata</h2>
-            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Google Search Snippet</span>
-          </div>
-          {showSeoSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-        </button>
-
-        {showSeoSection && (
-          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Title</label>
-              <input
-                type="text"
-                value={p.seo_title || ""}
-                onChange={(e) => setField("seo_title", e.target.value)}
-                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Meta Description (Search Snippet)</label>
-              <textarea
-                rows={3}
-                value={p.seo_description || ""}
-                onChange={(e) => setField("seo_description", e.target.value)}
-                placeholder="Concise search engine snippet (under 160 characters)..."
-                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs leading-relaxed"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">SEO Keywords (Comma Separated)</label>
-                <input
-                  type="text"
-                  value={arrToStr(p.seo_keywords)}
-                  onChange={(e) => setField("seo_keywords", strToArr(e.target.value))}
-                  className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Canonical Slug</label>
-                <input
-                  type="text"
-                  value={p.canonical_slug || p.slug || ""}
-                  onChange={(e) => setField("canonical_slug", e.target.value)}
-                  className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-mono"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* SECTION 6: Search Intelligence (Collapsed by default) */}
-      <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setShowSearchSection(!showSearchSection)}
-          className="w-full flex items-center justify-between p-5 bg-card hover:bg-muted/40 transition text-left"
-        >
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-primary" />
-            <h2 className="font-display text-sm font-bold uppercase tracking-wider text-foreground">Section 6 — Search Intelligence Index</h2>
-            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded font-mono">Showroom & Full Text</span>
-          </div>
-          {showSearchSection ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-        </button>
-
-        {showSearchSection && (
-          <div className="p-5 border-t border-border space-y-4 bg-muted/10">
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Search Keywords (App Keywords)</label>
-              <textarea
-                rows={2}
-                value={arrToStr(p.app_keywords || p.app_search_keywords)}
-                onChange={(e) => setField("app_keywords", strToArr(e.target.value))}
-                className="mt-1 w-full rounded-md border border-input bg-background p-2 text-xs font-mono"
-              />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Image Editor Modal (Crop, Rotate, Flip) */}
+      {/* Image Editor Modal */}
       {editingImage && (
         <ImageEditorModal
           isOpen={!!editingImage}
