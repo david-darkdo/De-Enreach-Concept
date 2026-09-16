@@ -17,3 +17,5 @@ export function getProductionOrigin(request?: Request): string {
 
   return "https://www.deenreachconcept.com.ng";
 }
+
+export const getCanonicalOrigin = getProductionOrigin;

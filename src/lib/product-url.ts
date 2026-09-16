@@ -1,36 +1,26 @@
-import { slugify, generateDeterministicProductSlug } from "./slug";
-import { getCanonicalOrigin } from "./origin";
+import { slugify } from "./slug";
+import { getProductionOrigin } from "./origin";
 
 export interface MinimumProductInfo {
   id?: string | null;
   slug?: string | null;
   name?: string | null;
-  code?: string | null;
 }
 
 /**
  * Returns the single authoritative normalized slug for a product.
- * 
- * 1. Prioritizes product.slug if present (guarantees 100% preservation of existing published URLs).
- * 2. If slug is absent, deterministically generates slug from code + name.
- * 3. Falls back to product.name, then product.id.
+ * Prefers product.slug if present, otherwise slugifies product.name, fallback to product.id.
  */
 export function getCanonicalProductSlug(product: MinimumProductInfo | null | undefined): string {
   if (!product) return "";
-  
-  // 1. Existing published slug preservation: Return exactly as stored in DB
-  if (product.slug && product.slug.trim()) {
-    return product.slug.trim();
+  if (product.slug) {
+    const clean = slugify(product.slug);
+    if (clean) return clean;
   }
-  
-  // 2. Deterministic derivation if slug is absent
-  if (product.code || product.name) {
-    return generateDeterministicProductSlug({
-      code: product.code,
-      name: product.name || "",
-    });
+  if (product.name) {
+    const clean = slugify(product.name);
+    if (clean) return clean;
   }
-  
   return product.id || "";
 }
 
@@ -44,11 +34,10 @@ export function getCanonicalProductPath(product: MinimumProductInfo | null | und
 
 /**
  * Returns the absolute canonical URL for a product: https://{domain}/product/{slug}
- * Defaults to the authoritative canonical domain (https://www.deenreachconcept.com.ng).
  */
 export function getCanonicalProductUrl(
   product: MinimumProductInfo | null | undefined,
-  origin: string = getCanonicalOrigin()
+  origin: string = getProductionOrigin()
 ): string {
   const base = origin.replace(/\/+$/, "");
   const path = getCanonicalProductPath(product);
