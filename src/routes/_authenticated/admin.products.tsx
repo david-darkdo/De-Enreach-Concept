@@ -85,8 +85,10 @@ function ProductLibrary() {
     if (filters.hidden === "no") q = q.eq("hidden", false);
     if (filters.featured === "home") q = q.eq("featured_homepage", true);
     if (filters.featured === "feed") q = q.eq("featured_feed", true);
-    if (filters.q.trim())
-      q = q.or(`name.ilike.%${filters.q}%,code.ilike.%${filters.q}%,production_name.ilike.%${filters.q}%`);
+    if (filters.q.trim()) {
+      const sq = `%${filters.q}%`;
+      q = q.or(`name.ilike.${sq},code.ilike.${sq},production_name.ilike.${sq}`);
+    }
     const { data, error } = await q;
     if (error) toast.error(error.message);
     setRows((data ?? []) as any);
@@ -150,278 +152,246 @@ function ProductLibrary() {
     const { error } = await supabase.from("products").update(patch as any).in("id", ids);
     if (error) return toast.error(error.message);
     
-    toast.success(`${label}: ${ids.length} product(s)`, {
+    toast.success(`${label} applied to ${ids.length} products`, {
       action: {
         label: "Undo",
         onClick: async () => {
-          for (const prev of previous || []) {
-            await supabase.from("products").update({
-              status: prev.status,
-              deleted_at: prev.deleted_at
-            } as any).eq("id", prev.id);
+          if (!previous || !previous.length) return;
+          try {
+            await Promise.all(
+              previous.map(p => 
+                supabase.from("products").update({
+                  status: p.status,
+                  deleted_at: p.deleted_at
+                } as any).eq("id", p.id)
+              )
+            );
+            toast.success("Bulk action undone successfully");
+            load();
+          } catch (err: any) {
+            toast.error("Failed to undo: " + err.message);
           }
-          toast.success("Bulk actions undone!");
-          load();
         }
       }
     });
+
     setSelected(new Set());
     load();
   };
 
-  const bulkDeleteHard = async () => {
-    if (!selected.size) return;
-    if (!confirm(`Permanently delete ${selected.size} product(s)? This cannot be undone.`)) return;
-    const ids = Array.from(selected);
-    const { error } = await supabase.from("products").delete().in("id", ids);
-    if (error) return toast.error(error.message);
-    toast.success(`Deleted ${ids.length}`);
-    setSelected(new Set());
-    load();
-  };
-
-  const rowAction = async (id: string, label: string, patch: Record<string, any>) => {
-    // Fetch previous state for Undo
-    const { data: prev } = await supabase.from("products").select("status, deleted_at").eq("id", id).single();
-
-    const { error } = await supabase.from("products").update(patch as any).eq("id", id);
-    if (error) return toast.error(error.message);
-    
-    toast.success(label, {
-      description: "You can undo this action if needed.",
-      action: {
-        label: "Undo",
-        onClick: async () => {
-          await supabase.from("products").update({
-            status: prev?.status,
-            deleted_at: prev?.deleted_at
-          } as any).eq("id", id);
-          toast.success("Action undone!");
-          load();
-        }
-      }
-    });
-    load();
-  };
-
-  const confirmPublish = (id: string, name: string) => {
-    toast(`Publish "${name}"?`, {
-      description: "This will make it instantly live on the showroom storefront.",
-      action: {
-        label: "Publish",
-        onClick: () => rowAction(id, "Published", { status: "published" })
-      }
-    });
-  };
-
-  const duplicate = async (id: string) => {
-    const { data } = await supabase.from("products").select("*").eq("id", id).single();
-    if (!data) return;
-    const { id: _id, code: _c, slug: _s, created_at: _ca, updated_at: _ua, similar_product_ids: _sim, ...rest } =
-      data as any;
-    const copy = {
-      ...rest,
-      name: `${rest.name} (Copy)`,
-      slug: `${rest.slug}-copy-${Math.random().toString(36).slice(2, 6)}`,
-      status: "draft",
-    };
-    const { data: ins, error } = await supabase.from("products").insert(copy as any).select("id").single();
-    if (error) return toast.error(error.message);
-    toast.success("Duplicated");
-    if (ins?.id) navigate({ to: "/admin/products/$id", params: { id: ins.id } });
-  };
+  const softDelete = () => bulk("Soft delete", { deleted_at: new Date().toISOString() });
+  const restore = () => bulk("Restore", { deleted_at: null });
 
   return (
-    <div className="container-app py-6 space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="container-app py-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-semibold">Product Library</h1>
+          <h1 className="font-display text-2xl font-semibold">Products</h1>
           <p className="text-sm text-muted-foreground">
-            Master command center — {rows.length} product(s).
+            Manage catalogue items, manual details, and single-pass product intelligence.
           </p>
         </div>
-        <Link
-          to="/admin/products/new"
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" /> New Product
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            to="/admin/products/new"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" /> New Product
+          </Link>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-4 lg:grid-cols-5">
+      {/* Filters Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2 bg-card p-3 rounded-lg border border-border text-xs">
         <input
+          type="text"
+          placeholder="Search name, code…"
           value={filters.q}
-          onChange={(e) => setFilters({ ...filters, q: e.target.value })}
-          placeholder="Search name / code…"
-          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
+          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+          className="col-span-2 rounded border border-input bg-background px-2 py-1.5"
         />
-        <Sel value={filters.type} onChange={(v) => setFilters({ ...filters, type: v, category: "", subcategory: "", family: "" })} label="Type" options={types} />
-        <Sel value={filters.category} onChange={(v) => setFilters({ ...filters, category: v, subcategory: "", family: "" })} label="Category" options={filteredCats} />
-        <Sel value={filters.subcategory} onChange={(v) => setFilters({ ...filters, subcategory: v, family: "" })} label="Subcategory" options={filteredSubs} />
-        <Sel value={filters.family} onChange={(v) => setFilters({ ...filters, family: v })} label="Family" options={filteredFams} />
-        <Sel value={filters.status} onChange={(v) => setFilters({ ...filters, status: v })} label="Status" options={STATUSES.map((s) => ({ id: s, name: s }))} />
-        <Sel value={filters.featured} onChange={(v) => setFilters({ ...filters, featured: v })} label="Featured" options={[{ id: "home", name: "Homepage" }, { id: "feed", name: "Feed" }]} />
-        <Sel value={filters.hidden} onChange={(v) => setFilters({ ...filters, hidden: v })} label="Hidden" options={[{ id: "yes", name: "Hidden" }, { id: "no", name: "Visible" }]} />
-        <Sel value={filters.ai} onChange={(v) => setFilters({ ...filters, ai: v })} label="AI Status" options={["idle", "queued", "processing", "ready", "failed"].map((s) => ({ id: s, name: s }))} />
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" checked={filters.includeDeleted} onChange={(e) => setFilters({ ...filters, includeDeleted: e.target.checked })} />
-          Show soft-deleted
-        </label>
+
+        <select
+          value={filters.type}
+          onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value, category: "", subcategory: "", family: "" }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">All Types</option>
+          {types.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+
+        <select
+          value={filters.category}
+          onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value, subcategory: "", family: "" }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">All Categories</option>
+          {filteredCats.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+
+        <select
+          value={filters.subcategory}
+          onChange={(e) => setFilters((f) => ({ ...f, subcategory: e.target.value, family: "" }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">All Subcategories</option>
+          {filteredSubs.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+
+        <select
+          value={filters.family}
+          onChange={(e) => setFilters((f) => ({ ...f, family: e.target.value }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">All Families</option>
+          {filteredFams.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">All Statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
+        <select
+          value={filters.ai}
+          onChange={(e) => setFilters((f) => ({ ...f, ai: e.target.value }))}
+          className="rounded border border-input bg-background px-2 py-1.5"
+        >
+          <option value="">AI: Any</option>
+          <option value="pending">AI: Pending</option>
+          <option value="processing">AI: Processing</option>
+          <option value="completed">AI: Completed</option>
+          <option value="failed">AI: Failed</option>
+        </select>
       </div>
 
       {/* Bulk actions */}
       {selected.size > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-primary/5 p-3 text-xs">
-          <span className="font-medium">{selected.size} selected</span>
-          <Btn onClick={() => bulk("Published", { status: "published" })}>Publish</Btn>
-          <Btn onClick={() => bulk("Archived", { status: "archived" })}>Archive</Btn>
-          <Btn onClick={() => bulk("Featured on Homepage", { featured_homepage: true })}>Feature Home</Btn>
-          <Btn onClick={() => bulk("Featured on Feed", { featured_feed: true })}>Feature Feed</Btn>
-          <Btn onClick={() => bulk("Un-featured", { featured_homepage: false, featured_feed: false })}>Un-feature</Btn>
-          <Btn onClick={() => bulk("Hidden", { hidden: true })}>Hide</Btn>
-          <Btn onClick={() => bulk("Unhidden", { hidden: false })}>Unhide</Btn>
-          <Btn onClick={() => bulk("AI Regenerate queued", { ai_status: "queued", is_ai_processing: true })}>Regenerate AI</Btn>
-          <Btn onClick={() => bulk("Soft-deleted", { deleted_at: new Date().toISOString() })}>Soft Delete</Btn>
-          <Btn onClick={() => bulk("Restored", { deleted_at: null })}>Restore</Btn>
-          <Btn onClick={bulkDeleteHard} variant="destructive">Permanent Delete</Btn>
+        <div className="flex flex-wrap items-center gap-2 rounded bg-primary/10 p-2 text-xs">
+          <span className="font-semibold">{selected.size} selected</span>
+          <button onClick={() => bulk("Publish", { status: "published" })} className="btn-sm rounded bg-primary text-primary-foreground px-2 py-1">Publish</button>
+          <button onClick={() => bulk("Set Draft", { status: "draft" })} className="btn-sm rounded border bg-card px-2 py-1">Set Draft</button>
+          <button onClick={() => bulk("Hide", { hidden: true })} className="btn-sm rounded border bg-card px-2 py-1">Hide</button>
+          <button onClick={() => bulk("Unhide", { hidden: false })} className="btn-sm rounded border bg-card px-2 py-1">Unhide</button>
+          <button onClick={softDelete} className="btn-sm rounded bg-destructive/10 text-destructive px-2 py-1">Soft Delete</button>
+          {filters.includeDeleted && (
+            <button onClick={restore} className="btn-sm rounded bg-emerald-600/10 text-emerald-600 px-2 py-1">Restore</button>
+          )}
         </div>
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-border bg-card">
-        <table className="min-w-full text-xs">
-          <thead className="border-b border-border bg-muted/30 text-left uppercase tracking-wider text-muted-foreground">
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="border-b border-border bg-muted/50 text-muted-foreground">
             <tr>
-              <th className="p-2"><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
-              <th className="p-2">Image</th>
-              <th className="p-2">Code</th>
-              <th className="p-2">Name</th>
-              <th className="p-2">Production</th>
-              <th className="p-2">Finish</th>
-              <th className="p-2">Hierarchy</th>
-              <th className="p-2">Price</th>
-              <th className="p-2">Status</th>
-              <th className="p-2">Flags</th>
-              <th className="p-2">AI</th>
-              <th className="p-2">Created</th>
-              <th className="p-2">Actions</th>
+              <th className="p-3 w-8">
+                <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+              </th>
+              <th className="p-3">Image</th>
+              <th className="p-3">Code</th>
+              <th className="p-3">Name</th>
+              <th className="p-3">Price</th>
+              <th className="p-3">Status</th>
+              <th className="p-3">AI</th>
+              <th className="p-3">Flags</th>
+              <th className="p-3">Created</th>
+              <th className="p-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {loading && (
-              <tr><td colSpan={13} className="p-4 text-center text-muted-foreground">Loading…</td></tr>
-            )}
-            {!loading && rows.length === 0 && (
-              <tr><td colSpan={13} className="p-6 text-center text-muted-foreground">No products match these filters.</td></tr>
-            )}
-            {rows.map((r) => {
-              const type = types.find((x) => x.id === r.type_id)?.name ?? "—";
-              const cat = cats.find((x) => x.id === r.category_id)?.name ?? "—";
-              const sub = subs.find((x) => x.id === r.subcategory_id)?.name ?? "—";
-              const fam = fams.find((x) => x.id === r.family_id)?.name ?? "—";
-              const img = publicImageUrl(r.generated_studio_image) || publicImageUrl(r.image_url);
-              return (
-                <tr key={r.id} className={r.deleted_at ? "opacity-50" : ""}>
-                  <td className="p-2"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} /></td>
-                  <td className="p-2">
-                    {img ? (
-                      <img src={img} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" />
-                    ) : (
-                      <div className="h-10 w-10 rounded bg-muted" />
-                    )}
-                  </td>
-                  <td className="p-2 font-mono">{r.code}</td>
-                  <td className="p-2 font-medium">{r.name}</td>
-                  <td className="p-2 text-muted-foreground">{r.production_name ?? "—"}</td>
-                  <td className="p-2 text-muted-foreground">{r.finish_name ?? "—"}</td>
-                  <td className="p-2 text-muted-foreground">{type} › {cat} › {sub} › {fam}</td>
-                  <td className="p-2">
-                    <div className="flex flex-col">
-                      {r.original_price != null && Number(r.original_price) > Number(r.price) && (
-                        <span className="line-through text-[10px] text-destructive">
-                          ₦{Number(r.original_price).toLocaleString()}
-                        </span>
-                      )}
-                      <span className="font-semibold text-foreground">
-                        ₦{Number(r.price).toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">/{r.pricing_unit || "sqm"}</span>
+            {loading ? (
+              <tr>
+                <td colSpan={10} className="p-8 text-center text-muted-foreground">Loading products…</td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="p-8 text-center text-muted-foreground">No products found.</td>
+              </tr>
+            ) : (
+              rows.map((r) => {
+                const img = publicImageUrl(r.generated_studio_image) || publicImageUrl(r.image_url);
+                return (
+                  <tr key={r.id} className={`hover:bg-muted/30 ${r.deleted_at ? "opacity-50" : ""}`}>
+                    <td className="p-3">
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSel(r.id)} />
+                    </td>
+                    <td className="p-3">
+                      <div className="h-10 w-10 rounded border border-border overflow-hidden bg-muted">
+                        {img ? (
+                          <img src={img} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center text-[9px] text-muted-foreground">None</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3 font-mono font-semibold">{r.code}</td>
+                    <td className="p-3">
+                      <div className="font-medium text-foreground">{r.name}</div>
+                      {r.production_name && <div className="text-[10px] text-muted-foreground">Prod: {r.production_name}</div>}
+                    </td>
+                    <td className="p-3 font-mono">
+                      ₦{Number(r.price).toLocaleString()}
+                      {r.pricing_unit && <span className="text-[10px] text-muted-foreground ml-0.5">/{r.pricing_unit}</span>}
+                    </td>
+                    <td className="p-3">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold ${
+                        r.status === "published" ? "bg-emerald-500/10 text-emerald-500" :
+                        r.status === "review" ? "bg-amber-500/10 text-amber-500" :
+                        r.status === "archived" ? "bg-muted text-muted-foreground" :
+                        "bg-zinc-500/10 text-zinc-500"
+                      }`}>
+                        {r.status}
                       </span>
-                    </div>
-                  </td>
-                  <td className="p-2"><Badge>{r.status}</Badge></td>
-                  <td className="p-2 space-x-1">
-                    {r.featured_homepage && <Badge tone="accent">Home</Badge>}
-                    {r.featured_feed && <Badge tone="accent">Feed</Badge>}
-                    {r.hidden && <Badge tone="muted">Hidden</Badge>}
-                    {r.deleted_at && <Badge tone="destructive">Deleted</Badge>}
-                  </td>
-                  <td className="p-2"><Badge tone="muted">{r.ai_status}</Badge></td>
-                  <td className="p-2 text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</td>
-                  <td className="p-2">
-                    <div className="flex flex-wrap gap-1">
-                      <Link to="/admin/products/$id" params={{ id: r.id }} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Edit</Link>
-                      <button onClick={() => duplicate(r.id)} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Duplicate</button>
-                      <button onClick={() => confirmPublish(r.id, r.name)} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Publish</button>
-                      <button onClick={() => rowAction(r.id, "Archived", { status: "archived" })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Archive</button>
-                      <button onClick={() => rowAction(r.id, "AI queued", { ai_status: "queued", is_ai_processing: true })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Regen AI</button>
-                      {r.deleted_at ? (
-                        <button onClick={() => rowAction(r.id, "Restored", { deleted_at: null })} className="rounded border border-border px-1.5 py-0.5 hover:border-primary">Restore</button>
-                      ) : (
-                        <button onClick={() => rowAction(r.id, "Soft deleted", { deleted_at: new Date().toISOString() })} className="rounded border border-border px-1.5 py-0.5 text-amber-600 hover:border-amber-600">Soft Del</button>
-                      )}
-                      <button
-                        onClick={async () => {
-                          if (!confirm("Permanently delete?")) return;
-                          const { error } = await supabase.from("products").delete().eq("id", r.id);
-                          if (error) return toast.error(error.message);
-                          toast.success("Deleted");
-                          load();
-                        }}
-                        className="rounded border border-destructive/40 px-1.5 py-0.5 text-destructive hover:bg-destructive/10"
-                      >Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+                    </td>
+                    <td className="p-3">
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold ${
+                        r.ai_status === "completed" ? "bg-primary/10 text-primary" :
+                        r.ai_status === "processing" ? "bg-blue-500/10 text-blue-500" :
+                        r.ai_status === "failed" ? "bg-destructive/10 text-destructive" :
+                        "bg-muted text-muted-foreground"
+                      }`}>
+                        {r.ai_status || "pending"}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex gap-1 text-[10px]">
+                        {r.featured_homepage && <span className="bg-primary/10 text-primary px-1 rounded">Home</span>}
+                        {r.featured_feed && <span className="bg-primary/10 text-primary px-1 rounded">Feed</span>}
+                        {r.hidden && <span className="bg-destructive/10 text-destructive px-1 rounded">Hidden</span>}
+                      </div>
+                    </td>
+                    <td className="p-3 text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</td>
+                    <td className="p-3 text-right">
+                      <Link
+                        to="/admin/products/$id"
+                        params={{ id: r.id }}
+                        className="rounded border border-input bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted"
+                      >
+                        Edit
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
     </div>
   );
-}
-
-function Sel({
-  value, onChange, label, options,
-}: { value: string; onChange: (v: string) => void; label: string; options: { id: string; name: string }[] }) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"
-    >
-      <option value="">All {label}</option>
-      {options.map((o) => (
-        <option key={o.id} value={o.id}>{o.name}</option>
-      ))}
-    </select>
-  );
-}
-
-function Btn({ onClick, children, variant }: { onClick: () => void; children: React.ReactNode; variant?: "destructive" }) {
-  const base = "rounded-md px-2 py-1 font-medium transition";
-  const tone = variant === "destructive"
-    ? "border border-destructive/40 text-destructive hover:bg-destructive/10"
-    : "border border-border bg-background hover:border-primary";
-  return <button onClick={onClick} className={`${base} ${tone}`}>{children}</button>;
-}
-
-function Badge({ children, tone }: { children: React.ReactNode; tone?: "muted" | "accent" | "destructive" }) {
-  const map: Record<string, string> = {
-    muted: "border-border bg-muted text-muted-foreground",
-    accent: "border-accent/40 bg-accent/10 text-accent",
-    destructive: "border-destructive/40 bg-destructive/10 text-destructive",
-  };
-  const cls = map[tone ?? ""] ?? "border-primary/30 bg-primary/10 text-primary";
-  return <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wider ${cls}`}>{children}</span>;
 }

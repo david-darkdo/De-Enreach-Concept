@@ -172,7 +172,7 @@ function RootShell({ children }: { children: ReactNode }) {
     "url": "https://www.deenreachconcept.com.ng",
     "potentialAction": {
       "@type": "SearchAction",
-      "target": "https://showroom.enreach.concepts/search?q={search_term_string}",
+      "target": "https://www.deenreachconcept.com.ng/search?q={search_term_string}",
       "query-input": "required name=search_term_string"
     }
   };
@@ -293,27 +293,8 @@ function RootAppWrapper() {
     void registerDevice();
   }, [user?.id, pathname]);
 
-  const loaderData = Route.useLoaderData();
-  const settings = loaderData?.settings;
-  const orgSchema = {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    "name": (settings as any)?.company_name || "Enreach Concepts",
-    "url": typeof window !== "undefined" ? window.location.origin : "https://enreachconcepts.com",
-    "logo": (settings as any)?.company_logo || (typeof window !== "undefined" ? `${window.location.origin}/logo.png` : "https://enreachconcepts.com/logo.png"),
-    "contactPoint": {
-      "@type": "ContactPoint",
-      "telephone": settings?.support_whatsapp || "",
-      "contactType": "sales & customer support"
-    }
-  };
-
   return (
     <div className="relative min-h-screen bg-background">
-      <script 
-        type="application/ld+json" 
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }} 
-      />
       {/* Full Page Breathing Logo Loading Screen */}
       {(() => {
         const isApiRoute = pathname === "/robots.txt" || pathname === "/sitemap.xml" || pathname.startsWith("/api/");
@@ -343,18 +324,15 @@ function RootAppWrapper() {
                 alt="Enreach Concepts Logo"
                 className="h-16 w-auto object-contain"
               />
-              <p className="font-display text-[9px] tracking-widest text-muted-foreground/80 uppercase">
-                Loading
-              </p>
+              <span className="text-[10px] font-mono tracking-widest text-muted-foreground uppercase">
+                Loading Showroom
+              </span>
             </div>
           </div>
         );
       })()}
-
-      {/* Global PWA Installation Prompt Banner */}
-      <InstallPwaBanner />
-
       <Outlet />
+      <InstallPwaBanner />
     </div>
   );
 }
