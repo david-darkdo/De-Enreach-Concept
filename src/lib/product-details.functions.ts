@@ -23,6 +23,81 @@ async function tryJSON<T = any>(
   }
 }
 
+export const DIFFERENTIATOR_TYPES = [
+  "Design Style",
+  "Material",
+  "Finish",
+  "Format",
+  "Installation",
+  "Performance",
+  "Function",
+  "Collection",
+  "Brand",
+  "Application",
+  "Other",
+] as const;
+
+export const CANONICAL_PRODUCT_DETAILS_PROMPT = `Analyze the product details and uploaded image for Enreach Concepts Digital Showroom (Abuja, Nigeria):
+
+Product Name: {product_name}
+Code / SKU: {code}
+Brand: {brand}
+Manufacturer: {manufacturer}
+Production Name: {production_name}
+Category: {category}
+Product Type: {type}
+Subcategory: {subcategory}
+Family Group: {family}
+Finish: {finish}
+Material: {material}
+Color: {color}
+Size / Dimensions: {size} {dimensions}
+Price: {price}
+Original Price: {original_price}
+Pricing Unit: {pricing_unit}
+Differentiator Type: {differentiator_type}
+Differentiator Note: {differentiator_note}
+
+CONTEXT & RULES:
+1. Showroom Role: You are the Professional Architectural Product Intelligence Engine for Enreach Concepts, a luxury building-materials showroom in Abuja, Nigeria. You specialize in tiles, porcelain, marble, granite, sanitaryware, doors, plumbing, lighting, furniture, and premium architectural finishes.
+2. Authoritative Data: Manual product inputs above are 100% authoritative. Never contradict, overwrite, or misstate manual specifications.
+3. Project Differentiator: When {differentiator_type} and {differentiator_note} are provided, intelligently weave this distinction into the narrative, applications, and search keywords without mechanically repeating raw strings. If absent, reason from available evidence.
+4. Anti-Fabrication: Never invent unverified technical certifications, load ratings, fire ratings, or warranty claims unless provided.
+5. Location Awareness: Where natural, incorporate Nigerian and Abuja market context (e.g. residential estates, commercial projects, tropical durability) into SEO and customer discovery without keyword stuffing.
+6. Single-Pass JSON Output: Output exactly ONE raw JSON object with NO markdown, NO backticks, NO conversational intro.
+
+JSON SCHEMA:
+{
+  "generated_description": "Rich, elegant, architectural showroom narrative for designers, architects, contractors, and luxury homeowners.",
+  "seo_title": "Compelling search engine title under 60 characters with high buyer intent.",
+  "seo_description": "Concise, search-friendly meta snippet under 160 characters. Do NOT clone the product description.",
+  "seo_keywords": ["keyword 1", "keyword 2", "keyword 3"],
+  "canonical_slug": "url-friendly-slug-suggestion",
+  "applications": ["2 to 4 concise, product-specific application or suitable space labels"],
+  "application_summary": "1 to 2 concise sentences explaining where and why this specific product excels.",
+  "faq": [
+    {"q": "0 to 2 genuine product-specific questions", "a": "Accurate, helpful answers"}
+  ],
+  "search_keywords": ["search term 1", "search term 2"],
+  "search_synonyms": ["synonym 1", "synonym 2"],
+  "alternative_names": ["alternative name 1", "alternative name 2"],
+  "related_search_terms": ["related term 1", "related term 2"],
+  "common_customer_phrases": ["customer phrase 1", "customer phrase 2"],
+  "common_misspellings": ["common misspelling 1", "common misspelling 2"],
+  "visual_characteristics": {
+    "material": "detected or confirmed material",
+    "finish": "detected or confirmed finish",
+    "color": "detected primary and accent colors",
+    "texture": "visual texture description",
+    "style": "aesthetic style classification"
+  },
+  "structured_schema_org": {
+    "@type": "Product",
+    "name": "{product_name}",
+    "description": "Concise summary for schema markup"
+  }
+}`;
+
 /**
  * ENGINE 1: PRODUCT DETAILS ENGINE (BUILD 4D UNIFIED SYSTEM)
  * 
@@ -90,45 +165,11 @@ export const runProductDetailsEngine = createServerFn({ method: "POST" })
       .limit(1)
       .maybeSingle();
 
-    const templateText =
-      activeTemplate?.prompt_text ||
-      activeTemplate?.description_prompt ||
-      `Analyze the product details and image:
-Product Name: {product_name}
-Code: {code}
-Brand: {brand}
-Production Name: {production_name}
-Finish: {finish}
-Material: {material}
-Color: {color}
-Size: {size}
-Price: {price}
-Original Price: {original_price}
-Pricing Unit: {pricing_unit}
-Differentiator Type: {differentiator_type}
-Differentiator Note: {differentiator_note}
-Type: {type}
-Category: {category}
-Subcategory: {subcategory}
-Family Group: {family}
+    const dbPrompt = activeTemplate?.prompt_text || activeTemplate?.description_prompt;
+    const isLegacyPrompt = dbPrompt && !dbPrompt.includes("generated_description") && !dbPrompt.includes("JSON");
+    const templateText = (!dbPrompt || isLegacyPrompt) ? CANONICAL_PRODUCT_DETAILS_PROMPT : dbPrompt;
 
-Output strict JSON with ONLY these keys:
-- generated_description (rich, elegant customer-facing showroom product narrative)
-- seo_title (compelling search engine title under 60 chars)
-- seo_description (concise search engine snippet under 160 chars, distinct from product description)
-- seo_keywords (array of high-intent search terms)
-- canonical_slug (url-friendly slug suggestion)
-- applications (array of 2 to 4 product-specific application strings e.g. ["Master Bathroom Walls", "Luxury Kitchen Islands", "High-Traffic Commercial Flooring"])
-- application_summary (short, 1-2 sentence product-specific application context explaining where and why this material excels)
-- faq (array of 0-2 product-specific {question, answer} objects)
-- structured_data (valid JSON-LD Product schema object)
-- search_keywords (array of search terms)
-- alternative_terms (array of alternative product names)
-- related_terms (array of complementary terms)
-- synonyms (array of synonyms)
-- misspellings (array of common customer typos)`;
-
-    const systemPrompt = `You are Enreach Product Intelligence AI, an expert in luxury building materials, architectural finishes, premium interiors, showroom product merchandising, customer discovery, and technical SEO.
+    const systemPrompt = `You are Enreach Product Intelligence AI, an expert in luxury building materials, architectural finishes, premium interiors, showroom product merchandising, customer discovery, and technical SEO in Abuja, Nigeria.
 
 Your responsibility is to analyze one product using its manual metadata and uploaded image, generate accurate structured product intelligence, and return valid JSON matching the schema keys only.
 
@@ -138,19 +179,22 @@ CORE INSTRUCTIONS:
 3. Anti-Fabrication Rule: Never invent unverified technical certifications, load ratings, fire ratings, or warranty claims unless provided in manual data.
 4. Product Differentiator: When provided, weave the differentiator nuance into the narrative, applications, and search keywords naturally. If absent, still produce distinctive product-specific intelligence from available evidence.
 5. Applications: Provide 2-4 realistic architectural applications and a 1-2 sentence summary specific to this material and product type. Never output generic universal boilerplate.
-6. FAQs: Include 0 to 2 genuine product-specific questions and answers only. Omit or return empty array if not strictly relevant. Never output universal 5-question FAQ dumps.
+6. FAQs: Include 0 to 2 genuine product-specific questions and answers only (using {"q": "...", "a": "..."}). Omit or return empty array if not strictly relevant. Never output universal 5-question FAQ dumps.
 7. Structured Output: Return raw JSON only. Never return markdown blocks, prose, or conversational wrappers.`;
 
     // 4. Build Product Metadata Payload
     let prompt = templateText
       .replace(/{product_name}/g, product.name || "")
-      .replace(/{code}/g, product.code || "")
+      .replace(/{code}/g, product.code || product.sku || "")
+      .replace(/{sku}/g, product.sku || product.code || "")
       .replace(/{brand}/g, product.brand ?? "Enreach Showroom")
+      .replace(/{manufacturer}/g, product.manufacturer || masterDoc.manufacturer || product.brand || "Enreach Concepts")
       .replace(/{production_name}/g, product.production_name ?? "")
       .replace(/{finish}/g, product.finish ?? product.finish_name ?? "premium finish")
       .replace(/{material}/g, product.material ?? "premium material")
       .replace(/{color}/g, product.color ?? "")
       .replace(/{size}/g, product.size ?? "")
+      .replace(/{dimensions}/g, product.dimensions || masterDoc.dimensions || "")
       .replace(/{price}/g, product.price ? String(product.price) : "")
       .replace(/{original_price}/g, originalPrice ? String(originalPrice) : "N/A")
       .replace(/{pricing_unit}/g, pricingUnit)
@@ -206,16 +250,14 @@ CORE INSTRUCTIONS:
           result: { error: errorMsg, engine: "Engine 1 (Single-Pass Product Details)" },
           completed_at: new Date().toISOString(),
         });
-      } catch {}
-
+      } catch {}\n
       // Update product error status without corrupting existing data
       try {
         await supabase.from("products").update({
           processing_state: "error",
           error_log: errorMsg,
         } as any).eq("id", productId);
-      } catch {}
-
+      } catch {}\n
       throw new Error(errorMsg);
     }
 
@@ -283,21 +325,26 @@ CORE INSTRUCTIONS:
     };
 
     // Structured Schema.org Product Data
-    if (json.structured_data && typeof json.structured_data === "object") {
-      productPatch.structured_data = json.structured_data;
+    if ((json.structured_schema_org || json.structured_data) && typeof (json.structured_schema_org || json.structured_data) === "object") {
+      productPatch.structured_data = json.structured_schema_org || json.structured_data;
     }
 
     // Unified Search Keywords, Tokens & Synonyms
     const rawSearchKeywords = [
       ...(Array.isArray(json.search_keywords) ? json.search_keywords : []),
+      ...(Array.isArray(json.search_synonyms) ? json.search_synonyms : []),
+      ...(Array.isArray(json.alternative_names) ? json.alternative_names : []),
       ...(Array.isArray(json.alternative_terms) ? json.alternative_terms : []),
+      ...(Array.isArray(json.related_search_terms) ? json.related_search_terms : []),
       ...(Array.isArray(json.related_terms) ? json.related_terms : []),
       ...(Array.isArray(json.synonyms) ? json.synonyms : []),
+      ...(Array.isArray(json.common_customer_phrases) ? json.common_customer_phrases : []),
       ...(Array.isArray(json.customer_phrases) ? json.customer_phrases : []),
+      ...(Array.isArray(json.common_misspellings) ? json.common_misspellings : []),
+      ...(Array.isArray(json.misspellings) ? json.misspellings : []),
       ...(Array.isArray(json.builder_terminology) ? json.builder_terminology : []),
       ...(Array.isArray(json.designer_terminology) ? json.designer_terminology : []),
       ...(Array.isArray(json.contractor_terminology) ? json.contractor_terminology : []),
-      ...(Array.isArray(json.misspellings) ? json.misspellings : []),
       ...(Array.isArray(json.filter_tokens) ? json.filter_tokens : []),
       ...(applications),
     ].map((t: any) => String(t).trim()).filter(Boolean);
@@ -322,19 +369,20 @@ CORE INSTRUCTIONS:
 
     // 9. Upsert Product Understanding Record
     try {
+      const vis = json.visual_characteristics || {};
       await supabase.from("product_understanding" as any).upsert({
         product_id: productId,
         raw_ai_response: json,
-        detected_material: json.material ?? product.material ?? null,
-        detected_finish: json.finish ?? product.finish ?? null,
-        detected_color: json.color ?? product.color ?? null,
+        detected_material: vis.material ?? json.material ?? product.material ?? null,
+        detected_finish: vis.finish ?? json.finish ?? product.finish ?? null,
+        detected_color: vis.color ?? json.color ?? product.color ?? null,
+        detected_style: vis.style ?? json.style ?? null,
         detected_environment: applications.join(", ") || null,
         detected_keywords: productPatch.app_keywords ?? [],
         confidence_score: 0.95,
         provider: provider.name,
       }, { onConflict: "product_id" } as any);
-    } catch {}
-
+    } catch {}\n
     // 10. Compute Similar Product Suggestions (Preserve Existing Showroom Cross-sell)
     const { data: similarProds } = await supabase
       .from("products")
@@ -352,8 +400,7 @@ CORE INSTRUCTIONS:
     // 11. Rebuild Unified Search Index
     try {
       await supabase.rpc("rebuild_search_index" as any, { _product_id: productId } as any);
-    } catch {}
-
+    } catch {}\n
     const executionMs = Date.now() - started;
 
     // 12. Log Execution Metrics in ai_jobs
@@ -371,8 +418,7 @@ CORE INSTRUCTIONS:
         },
         completed_at: new Date().toISOString(),
       });
-    } catch {}
-
+    } catch {}\n
     // 13. Re-query Updated Product Row for Final Verification
     const { data: verifiedProduct } = await supabase
       .from("products")
