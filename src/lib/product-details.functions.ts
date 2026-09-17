@@ -250,14 +250,16 @@ CORE INSTRUCTIONS:
           result: { error: errorMsg, engine: "Engine 1 (Single-Pass Product Details)" },
           completed_at: new Date().toISOString(),
         });
-      } catch {}\n
+      } catch {}
+
       // Update product error status without corrupting existing data
       try {
         await supabase.from("products").update({
           processing_state: "error",
           error_log: errorMsg,
         } as any).eq("id", productId);
-      } catch {}\n
+      } catch {}
+
       throw new Error(errorMsg);
     }
 
@@ -382,7 +384,8 @@ CORE INSTRUCTIONS:
         confidence_score: 0.95,
         provider: provider.name,
       }, { onConflict: "product_id" } as any);
-    } catch {}\n
+    } catch {}
+
     // 10. Compute Similar Product Suggestions (Preserve Existing Showroom Cross-sell)
     const { data: similarProds } = await supabase
       .from("products")
@@ -400,7 +403,8 @@ CORE INSTRUCTIONS:
     // 11. Rebuild Unified Search Index
     try {
       await supabase.rpc("rebuild_search_index" as any, { _product_id: productId } as any);
-    } catch {}\n
+    } catch {}
+
     const executionMs = Date.now() - started;
 
     // 12. Log Execution Metrics in ai_jobs
@@ -418,7 +422,8 @@ CORE INSTRUCTIONS:
         },
         completed_at: new Date().toISOString(),
       });
-    } catch {}\n
+    } catch {}
+
     // 13. Re-query Updated Product Row for Final Verification
     const { data: verifiedProduct } = await supabase
       .from("products")
