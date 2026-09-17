@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getAIProvider } from "./ai-providers";
 
+/**
+ * Universal JSON response extractor from LLM text/markdown response
+ */
 async function tryJSON<T = any>(
   provider: any,
   prompt: string,
@@ -10,8 +13,6 @@ async function tryJSON<T = any>(
 ): Promise<{ data: T | null; raw: string; error?: string }> {
   try {
     const raw = await provider.callLLM(prompt, system, imageUrl);
-    if (!raw) return { data: null, raw: "", error: "AI model returned an empty text response." };
-
     const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
     const m = cleaned.match(/\{[\s\S]*\}/);
     if (!m) return { data: null, raw, error: "No JSON object found in AI response." };
@@ -166,8 +167,13 @@ export const runProductDetailsEngine = createServerFn({ method: "POST" })
       .maybeSingle();
 
     const dbPrompt = activeTemplate?.prompt_text || activeTemplate?.description_prompt;
-    const isLegacyPrompt = dbPrompt && !dbPrompt.includes("generated_description") && !dbPrompt.includes("JSON");
-    const templateText = (!dbPrompt || isLegacyPrompt) ? CANONICAL_PRODUCT_DETAILS_PROMPT : dbPrompt;
+    const isValidCanonical = Boolean(
+      dbPrompt &&
+      dbPrompt.includes("generated_description") &&
+      dbPrompt.includes("applications") &&
+      dbPrompt.includes("JSON SCHEMA")
+    );
+    const templateText = isValidCanonical ? dbPrompt! : CANONICAL_PRODUCT_DETAILS_PROMPT;
 
     const systemPrompt = `You are Enreach Product Intelligence AI, an expert in luxury building materials, architectural finishes, premium interiors, showroom product merchandising, customer discovery, and technical SEO in Abuja, Nigeria.
 

@@ -186,74 +186,78 @@ function AdminAiTemplatesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [tplRes, prodRes] = await Promise.all([
-        supabase.from("ai_prompt_templates").select("*").order("name"),
-        supabase.from("products").select("id, name, brand, image_url, code, material, finish_name, price").limit(30),
+      await fetchUserRole();
+      const [prodRes, promptsRes] = await Promise.all([
+        supabase
+          .from("products")
+          .select("id, name, brand, image_url, processing_state")
+          .not("image_url", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(30),
+        supabase.from("ai_prompt_templates").select("*").order("key"),
       ]);
 
-      const rawTemplates = tplRes.data || [];
-      const templateMap: Record<string, PromptTemplate> = {};
+      const allPrompts = promptsRes.data ?? [];
+      const firstRow = allPrompts[0] || null;
 
-      rawTemplates.forEach((t: any) => {
-        if (t.key) {
-          templateMap[t.key] = {
-            id: t.id,
-            key: t.key,
-            name: t.name || STAGE_LABELS[t.key]?.label || t.key,
-            purpose: t.purpose || STAGE_LABELS[t.key]?.description || "",
-            prompt_text: t.prompt_text || CANONICAL_PROMPT_DEFAULTS[t.key] || "",
-            is_active: t.is_active ?? true,
-            version: t.version || 1,
-            updated_at: t.updated_at,
-          };
-        }
+      // Map to canonical STAGE_ORDER
+      const rawMap: Record<string, any> = {};
+      allPrompts.forEach((p: any) => {
+        if (p.key) rawMap[p.key] = p;
       });
 
-      const fullTemplates: PromptTemplate[] = STAGE_ORDER.map((k) => {
-        if (templateMap[k]) return templateMap[k];
+      const merged: PromptTemplate[] = STAGE_ORDER.map((key) => {
+        const p = rawMap[key] || firstRow;
+        const rawText = key === "product_details"
+          ? (p?.prompt_text || p?.description_prompt)
+          : (p?.prompt_text || p?.installed_prompt);
+
+        const isLegacy = key === "product_details"
+          ? (!rawText || !rawText.includes("JSON SCHEMA") || !rawText.includes("generated_description"))
+          : false;
+
+        const promptText = (key === "product_details" && isLegacy)
+          ? CANONICAL_PROMPT_DEFAULTS.product_details
+          : (rawText || CANONICAL_PROMPT_DEFAULTS[key] || "");
+
         return {
-          id: `virtual-${k}`,
-          key: k,
-          name: STAGE_LABELS[k]?.label || k,
-          purpose: STAGE_LABELS[k]?.description || "",
-          prompt_text: CANONICAL_PROMPT_DEFAULTS[k] || "",
-          is_active: true,
-          version: 1,
+          id: p?.id ?? key,
+          key,
+          name: p?.name ?? STAGE_LABELS[key]?.label ?? key,
+          purpose: p?.purpose ?? STAGE_LABELS[key]?.description ?? "",
+          prompt_text: promptText,
+          is_active: p?.is_active ?? true,
+          version: p?.version ?? 1,
+          updated_at: p?.updated_at,
         };
       });
 
-      setTemplates(fullTemplates);
-      setProducts(prodRes.data || []);
-      if (prodRes.data && prodRes.data.length > 0 && !selectedProductId) {
-        setSelectedProductId(prodRes.data[0].id);
-      }
+      setTemplates(merged);
     } catch (e: any) {
-      toast.error(e.message ?? "Failed to load AI Prompt Templates");
+      toast.error(e.message ?? "Failed to load AI Control Center");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    void fetchUserRole();
-    void loadData();
-  }, [user?.id]);
-
   const loadHistory = async (templateId: string) => {
-    if (templateId.startsWith("virtual-")) {
+    if (!templateId || templateId === selectedKey) {
+      setHistoryLogs([]);
+    }
+    const tmpl = templates.find((t) => t.key === selectedKey);
+    if (!tmpl?.id || tmpl.id === tmpl.key) {
       setHistoryLogs([]);
       return;
     }
     setHistoryLoading(true);
     try {
       const { data, error } = await supabase
-        .from("ai_prompt_template_history")
+        .from("ai_prompt_templates_history" as any)
         .select("*")
-        .eq("template_id", templateId)
-        .order("version", { ascending: false });
-
+        .eq("template_id", tmpl.id)
+        .order("created_at", { ascending: false });
       if (error) throw error;
-      setHistoryLogs(data || []);
+      setHistoryLogs((data as any[]) ?? []);
     } catch (e: any) {
       toast.error(e.message ?? "Failed to load version history");
     } finally {
@@ -261,87 +265,58 @@ function AdminAiTemplatesPage() {
     }
   };
 
-  const handleSelectTemplate = (key: string) => {
-    setSelectedKey(key);
-    setSandboxResult(null);
-    setSandboxError("");
-    const tpl = templates.find((t) => t.key === key);
-    if (tpl && activeTab === "history") {
-      void loadHistory(tpl.id);
-    }
-  };
+  useEffect(() => { void loadData(); }, []);
 
-  const handleTabChange = (tab: "editor" | "sandbox" | "history") => {
-    setActiveTab(tab);
-    if (tab === "history" && currentTemplate) {
+  const currentTemplate = templates.find((t) => t.key === selectedKey);
+
+  useEffect(() => {
+    if (activeTab === "history" && currentTemplate?.id) {
       void loadHistory(currentTemplate.id);
     }
-  };
-
-  const currentTemplate = templates.find((t) => t.key === selectedKey) || templates[0];
-  const selectedProduct = products.find((p) => p.id === selectedProductId) || products[0];
+  }, [selectedKey, activeTab, currentTemplate?.id]);
 
   const handleFieldChange = (field: keyof PromptTemplate, value: any) => {
-    if (!isSuperAdmin) return;
     setTemplates((prev) =>
       prev.map((t) => (t.key === selectedKey ? { ...t, [field]: value } : t))
     );
   };
 
+  const handleResetToDefault = () => {
+    if (!currentTemplate) return;
+    const defaultPrompt = CANONICAL_PROMPT_DEFAULTS[currentTemplate.key] || "";
+    handleFieldChange("prompt_text", defaultPrompt);
+    toast.info("Prompt reset to canonical JSON default. Click 'Save Template' to commit changes.");
+  };
+
   const handleSave = async () => {
-    if (!isSuperAdmin || !currentTemplate) return;
+    if (!isSuperAdmin) return toast.error("Access Denied: Only admins can save prompt templates.");
+    const current = templates.find((t) => t.key === selectedKey);
+    if (!current) return;
+
     setSaving(true);
     try {
-      const isVirtual = currentTemplate.id.startsWith("virtual-");
-      let savedId = currentTemplate.id;
-
-      if (isVirtual) {
-        const { data, error } = await supabase
-          .from("ai_prompt_templates")
-          .insert({
-            key: currentTemplate.key,
-            name: currentTemplate.name,
-            purpose: currentTemplate.purpose,
-            prompt_text: currentTemplate.prompt_text,
-            is_active: currentTemplate.is_active,
-            version: 1,
-            created_by: user?.id,
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-        savedId = data.id;
-        toast.success(`Created and initialized "${currentTemplate.name}"`);
-      } else {
-        const nextVersion = (currentTemplate.version || 1) + 1;
-
-        await supabase.from("ai_prompt_template_history").insert({
-          template_id: currentTemplate.id,
-          name: currentTemplate.name,
-          prompt_text: currentTemplate.prompt_text,
-          is_active: currentTemplate.is_active,
-          version: currentTemplate.version,
-          created_by: user?.id,
-        });
-
+      if (current.key === "product_details") {
         const { error } = await supabase
           .from("ai_prompt_templates")
           .update({
-            name: currentTemplate.name,
-            purpose: currentTemplate.purpose,
-            prompt_text: currentTemplate.prompt_text,
-            is_active: currentTemplate.is_active,
-            version: nextVersion,
+            description_prompt: current.prompt_text,
             updated_at: new Date().toISOString(),
-          })
-          .eq("id", currentTemplate.id);
-
+          } as any)
+          .neq("id", "00000000-0000-0000-0000-000000000000");
         if (error) throw error;
-        toast.success(`Saved "${currentTemplate.name}" (v${nextVersion})`);
+      } else if (current.key === "lifestyle") {
+        const { error } = await supabase
+          .from("ai_prompt_templates")
+          .update({
+            installed_prompt: current.prompt_text,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .neq("id", "00000000-0000-0000-0000-000000000000");
+        if (error) throw error;
       }
 
-      await loadData();
+      toast.success(`✓ ${current.name} saved successfully`);
+      void loadData();
     } catch (e: any) {
       toast.error(e.message ?? "Failed to save template");
     } finally {
@@ -349,242 +324,230 @@ function AdminAiTemplatesPage() {
     }
   };
 
-  const handleRestoreDefault = () => {
-    if (!isSuperAdmin || !currentTemplate) return;
-    const defaultText = CANONICAL_PROMPT_DEFAULTS[currentTemplate.key];
-    if (defaultText) {
-      handleFieldChange("prompt_text", defaultText);
-      toast.info("Restored to canonical default. Click 'Save Template' to commit.");
+  const handleRestore = async (version: VersionHistory) => {
+    if (!isSuperAdmin) return toast.error("Only admins can restore templates.");
+    if (!confirm(`Restore template to version v${version.version}? This will become the active prompt.`)) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("ai_prompt_templates")
+        .update({
+          name: version.name,
+          prompt_text: version.prompt_text,
+          is_active: version.is_active,
+          updated_by: user?.id,
+        } as any)
+        .eq("id", version.template_id);
+
+      if (error) throw error;
+      toast.success(`✓ Restored to version v${version.version}`);
+      void loadData();
+      setActiveTab("editor");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to restore version");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleRevertVersion = (item: VersionHistory) => {
-    if (!isSuperAdmin) return;
-    handleFieldChange("prompt_text", item.prompt_text);
-    handleFieldChange("name", item.name);
-    setActiveTab("editor");
-    toast.info(`Loaded prompt from version ${item.version}. Save to create a new version.`);
-  };
-
-  const handleRunSandbox = async () => {
+  const runSandbox = async () => {
     if (!selectedProductId || !currentTemplate) return;
     setTesting(true);
     setSandboxResult(null);
     setSandboxError("");
-
     try {
       const res = await sandboxFn({
-        data: {
-          stageKey: currentTemplate.key,
-          productId: selectedProductId,
-          customPrompt: currentTemplate.prompt_text,
-        },
+        data: { productId: selectedProductId, stageKey: currentTemplate.key },
       });
-
-      if (!res.ok) {
-        setSandboxError(res.error || "Stage execution failed.");
+      if (res.ok) {
+        const result = res as any;
+        // Try to parse validation result if quality stage
+        let validationResult: any = null;
+        if (currentTemplate.key === "quality" && result.aiResponse) {
+          try {
+            const m = result.aiResponse.match(/\{[\s\S]*\}/);
+            if (m) validationResult = JSON.parse(m[0]);
+          } catch {}
+        }
+        setSandboxResult({ ...result, validationResult });
       } else {
-        setSandboxResult(res as SandboxResult);
-        toast.success(`Stage "${currentTemplate.name}" evaluated in ${res.executionMs}ms`);
+        setSandboxError((res as any).error ?? "Sandbox execution failed");
       }
     } catch (e: any) {
-      setSandboxError(e.message ?? "An error occurred while executing the sandbox test.");
+      setSandboxError(e.message ?? "Unexpected error running sandbox");
     } finally {
       setTesting(false);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center space-y-2">
+          <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-muted-foreground">Loading AI Pipeline Control Center...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="container-app py-8 space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
+    <div className="max-w-6xl mx-auto space-y-6 pb-20">
+      {/* Header */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <Sparkles className="h-6 w-6 text-primary" />
-            <h1 className="font-display text-2xl font-bold tracking-tight">AI Control Center</h1>
+            <Sparkles className="h-5 w-5 text-primary" />
+            <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
+              AI Pipeline Control Center
+            </h1>
+            <span className="text-xs font-mono bg-primary/10 text-primary px-2 py-0.5 rounded border border-primary/20">
+              BUILD 4D UNIFIED
+            </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure, version, and test the active prompt templates for Single-Pass Product Details (Engine 1) and Lifestyle Scene Generation (Engine 2).
+            Universal AI Operating System — six stages, one intelligence pipeline.
           </p>
         </div>
-
-        {isSuperAdmin && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRestoreDefault}
-              disabled={loading || saving}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-lg bg-card hover:bg-muted transition text-muted-foreground hover:text-foreground disabled:opacity-50"
-            >
-              <RotateCcw className="h-3.5 w-3.5" /> Canonical Default
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={loading || saving}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {saving ? "Saving..." : "Save Template"}
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {!isSuperAdmin && (
+            <span className="text-xs border border-amber-500/20 bg-amber-500/10 text-amber-600 rounded px-2.5 py-1 font-medium">
+              Read-Only View
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || !isSuperAdmin || !currentTemplate}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/95 disabled:opacity-50 cursor-pointer"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {saving ? "Saving..." : "Save Template"}
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="py-20 text-center text-sm text-muted-foreground">Loading templates...</div>
-      ) : (
-        <div className="grid lg:grid-cols-12 gap-6 items-start">
-          {/* ─────────────── SIDEBAR STAGES LIST ─────────────── */}
-          <div className="lg:col-span-4 space-y-2">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1 mb-2">
-              Active Engines ({templates.length})
-            </p>
-            {templates.map((tpl) => {
-              const isSelected = tpl.key === selectedKey;
-              const Icon = STAGE_ICONS[tpl.key] || FileText;
-              const info = STAGE_LABELS[tpl.key];
+      <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+        {/* Stage Selector Sidebar */}
+        <aside className="space-y-1">
+          <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold px-2 mb-3">
+            Pipeline Stages
+          </h2>
+          {STAGE_ORDER.map((key, idx) => {
+            const tmpl = templates.find((t) => t.key === key);
+            const StageIcon = STAGE_ICONS[key] ?? Brain;
+            const isSelected = selectedKey === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedKey(key);
+                  setSandboxResult(null);
+                  setSandboxError("");
+                }}
+                className={`w-full text-left rounded-lg px-3 py-2.5 text-xs font-medium transition flex items-center gap-2.5 cursor-pointer group ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground font-semibold shadow-sm"
+                    : "border border-transparent hover:bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold border ${
+                  isSelected ? "bg-primary-foreground/20 text-primary-foreground border-primary-foreground/30" : "bg-muted border-border text-muted-foreground"
+                }`}>
+                  {idx + 1}
+                </span>
+                <StageIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{STAGE_LABELS[key]?.label ?? key}</span>
+                <span className={`ml-auto text-[10px] rounded px-1 py-0.5 flex-shrink-0 ${
+                  isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+                }`}>
+                  v{tmpl?.version ?? 1}
+                </span>
+              </button>
+            );
+          })}
 
-              return (
-                <button
-                  key={tpl.key}
-                  onClick={() => handleSelectTemplate(tpl.key)}
-                  className={`w-full text-left p-3.5 rounded-xl border transition flex items-start gap-3 ${
-                    isSelected
-                      ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-border bg-card hover:border-primary/40"
-                  }`}
-                >
-                  <div
-                    className={`p-2 rounded-lg border flex-shrink-0 ${
-                      info?.color ?? "text-muted-foreground bg-muted border-border"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-semibold text-xs truncate text-foreground">
-                        {tpl.name}
-                      </span>
-                      <span className="text-[10px] font-mono text-muted-foreground flex-shrink-0">
-                        v{tpl.version}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
-                      {tpl.purpose}
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span
-                        className={`inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                          tpl.is_active
-                            ? "bg-emerald-500/10 text-emerald-600"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            tpl.is_active ? "bg-emerald-500" : "bg-muted-foreground"
-                          }`}
-                        />
-                        {tpl.is_active ? "Active" : "Disabled"}
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronRight
-                    className={`h-4 w-4 flex-shrink-0 self-center transition ${
-                      isSelected ? "text-primary translate-x-0.5" : "text-muted-foreground/40"
-                    }`}
-                  />
-                </button>
-              );
-            })}
-          </div>
-
-          {/* ─────────────── MAIN CONTENT AREA ─────────────── */}
-          <div className="lg:col-span-8 bg-card border border-border rounded-xl p-6 shadow-sm space-y-6">
-            {/* Template Header & Tabs */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
-              <div>
-                <h2 className="text-base font-bold text-foreground">{currentTemplate?.name}</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">{currentTemplate?.purpose}</p>
-              </div>
-
-              {/* Tab Navigation */}
-              <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-lg border border-border self-start sm:self-auto">
-                <button
-                  onClick={() => handleTabChange("editor")}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-                    activeTab === "editor"
-                      ? "bg-background text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Prompt Editor
-                </button>
-                <button
-                  onClick={() => handleTabChange("sandbox")}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                    activeTab === "sandbox"
-                      ? "bg-background text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Play className="h-3 w-3 text-primary" /> Test Sandbox
-                </button>
-                <button
-                  onClick={() => handleTabChange("history")}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition flex items-center gap-1.5 ${
-                    activeTab === "history"
-                      ? "bg-background text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <History className="h-3 w-3" /> History
-                </button>
-              </div>
+          <div className="pt-4 border-t border-border mt-4 px-2 space-y-2">
+            <p className="text-[11px] font-semibold text-muted-foreground">Architectural Directives</p>
+            <div className="text-[10px] text-muted-foreground space-y-1 leading-relaxed">
+              <p>• <strong>Engine 1</strong>: Single-pass structured product details.</p>
+              <p>• <strong>Engine 2</strong>: Isolated lifestyle rendering.</p>
+              <p>• <strong>Schema</strong>: 100% database & SEO synced.</p>
             </div>
+          </div>
+        </aside>
 
-            {/* ─────────────── PROMPT EDITOR ─────────────── */}
-            {currentTemplate && activeTab === "editor" && (
-              <div className="space-y-4">
-                {/* Meta details & status toggle */}
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">Template Name</label>
-                    <input
-                      disabled={!isSuperAdmin}
-                      type="text"
-                      value={currentTemplate.name}
-                      onChange={(e) => handleFieldChange("name", e.target.value)}
-                      className="mt-1 w-full text-xs bg-background border border-border rounded-lg px-3 py-2 outline-none focus:border-primary disabled:opacity-70"
-                    />
+        {/* Main Content Workspace */}
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          {/* Stage Header Banner */}
+          {currentTemplate && (
+            <div className="p-6 border-b border-border bg-muted/20">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded border ${STAGE_LABELS[currentTemplate.key]?.color ?? "text-muted-foreground"}`}>
+                      Stage {STAGE_ORDER.indexOf(currentTemplate.key) + 1}
+                    </span>
+                    <h2 className="font-display text-base font-bold text-foreground">
+                      {currentTemplate.name}
+                    </h2>
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground">Pipeline Purpose</label>
-                    <input
-                      disabled={!isSuperAdmin}
-                      type="text"
-                      value={currentTemplate.purpose}
-                      onChange={(e) => handleFieldChange("purpose", e.target.value)}
-                      className="mt-1 w-full text-xs bg-background border border-border rounded-lg px-3 py-2 outline-none focus:border-primary disabled:opacity-70"
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground max-w-2xl">
+                    {currentTemplate.purpose}
+                  </p>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">Pipeline Status:</span>
-                    <span
-                      className={`text-xs font-semibold ${
-                        currentTemplate.is_active ? "text-emerald-600" : "text-muted-foreground"
-                      }`}
-                    >
-                      {currentTemplate.is_active ? "Enabled" : "Disabled (Pass-through)"}
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <span className="text-[10px] font-mono text-muted-foreground block">
+                      Version v{currentTemplate.version}
                     </span>
+                    {currentTemplate.updated_at && (
+                      <span className="text-[10px] text-muted-foreground block">
+                        Updated {new Date(currentTemplate.updated_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Tabs */}
+          <div className="flex border-b border-border px-6 bg-muted/10 gap-2">
+            {(["editor", "sandbox", "history"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`py-3 px-3 text-xs font-medium border-b-2 transition -mb-px capitalize cursor-pointer ${
+                  activeTab === tab
+                    ? "border-primary text-primary font-semibold"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab === "history" ? `Version History (${historyLogs.length})` : tab === "sandbox" ? "Sandbox Test" : "Prompt Editor"}
+              </button>
+            ))}
+          </div>
+
+          <div className="p-6">
+            {/* ─────────────── PROMPT EDITOR ─────────────── */}
+            {currentTemplate && activeTab === "editor" && (
+              <div className="space-y-5">
+                {/* Active toggle */}
+                <div className="flex items-center justify-between bg-muted/40 border border-border rounded-lg px-4 py-3">
+                  <div>
+                    <p className="text-xs font-medium">Template Active Status</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      Inactive templates are skipped by the pipeline.
+                    </p>
                   </div>
                   <button
                     disabled={!isSuperAdmin}
                     onClick={() => handleFieldChange("is_active", !currentTemplate.is_active)}
-                    className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    className={`inline-flex items-center text-xs font-bold gap-1 transition cursor-pointer ${
+                      currentTemplate.is_active ? "text-emerald-600" : "text-red-500"
+                    } disabled:opacity-60`}
                   >
                     {currentTemplate.is_active ? (
                       <ToggleRight className="h-5 w-5" />
@@ -598,7 +561,19 @@ function AdminAiTemplatesPage() {
                 {/* Prompt text editor */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold">Prompt Directives</h3>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-sm font-semibold">Prompt Directives</h3>
+                      {isSuperAdmin && (
+                        <button
+                          type="button"
+                          onClick={handleResetToDefault}
+                          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Reset to Canonical Default
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[10px] text-muted-foreground font-mono">
                       {currentTemplate.prompt_text.length} chars
                     </span>
@@ -642,131 +617,96 @@ function AdminAiTemplatesPage() {
             {currentTemplate && activeTab === "sandbox" && (
               <div className="space-y-5">
                 {/* Product Selector */}
-                <div className="bg-muted/30 border border-border rounded-xl p-4 space-y-4">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Play className="h-4 w-4 text-primary" /> Sandbox Configuration
-                  </h3>
-
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Select Product</label>
-                      <select
-                        value={selectedProductId}
-                        onChange={(e) => {
-                          setSelectedProductId(e.target.value);
-                          setSandboxResult(null);
-                          setSandboxError("");
-                        }}
-                        className="w-full text-xs bg-background border border-border rounded-lg px-3 py-2 outline-none focus:border-primary"
-                      >
-                        <option value="">Choose a product...</option>
-                        {products.map((prod) => (
-                          <option key={prod.id} value={prod.id}>
-                            {prod.name} {prod.brand ? `(${prod.brand})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold">Test with Real Product</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Select an existing showroom product to run this stage in isolated sandbox mode.
+                      </p>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Stage to Test</label>
-                      <div className="px-3 py-2 text-xs border border-border rounded-lg bg-background text-foreground font-medium">
-                        {STAGE_LABELS[currentTemplate.key]?.label ?? currentTemplate.key}
-                      </div>
-                    </div>
+                    <button
+                      onClick={runSandbox}
+                      disabled={testing || !selectedProductId}
+                      className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/95 disabled:opacity-50 cursor-pointer shadow-sm"
+                    >
+                      <Play className="h-3 w-3" />
+                      {testing ? "Executing Sandbox..." : "Run Sandbox Test"}
+                    </button>
                   </div>
 
-                  {/* Selected Product Preview */}
-                  {selectedProduct && (
-                    <div className="flex items-center gap-3 border border-border rounded-lg p-3 bg-background">
-                      {selectedProduct.image_url ? (
-                        <img
-                          src={selectedProduct.image_url}
-                          alt={selectedProduct.name}
-                          className="h-12 w-12 object-cover rounded border border-border flex-shrink-0"
-                        />
-                      ) : (
-                        <div className="h-12 w-12 bg-muted rounded border border-border flex-items-center justify-center flex-shrink-0">
-                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-xs font-bold text-foreground">{selectedProduct.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {selectedProduct.brand || "Enreach Showroom"} · Code: {selectedProduct.code || "N/A"} · ₦
-                          {Number(selectedProduct.price || 0).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleRunSandbox}
-                    disabled={testing || !selectedProductId}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition shadow-sm disabled:opacity-50"
+                  <select
+                    value={selectedProductId}
+                    onChange={(e) => setSelectedProductId(e.target.value)}
+                    className="w-full text-xs rounded-md bg-background border border-border p-2.5 font-medium outline-none focus:border-primary"
                   >
-                    <Play className="h-3.5 w-3.5" />
-                    {testing ? "Evaluating Stage..." : `Execute Sandbox: ${currentTemplate.name}`}
-                  </button>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.brand ? `(${p.brand})` : ""} — {p.processing_state}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Error Banner */}
                 {sandboxError && (
-                  <div className="bg-destructive/10 border border-destructive/20 text-destructive text-xs p-3.5 rounded-xl flex items-start gap-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-red-600 text-xs">
                     <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-semibold">Sandbox Execution Failed</p>
-                      <p className="mt-0.5">{sandboxError}</p>
+                      <p className="font-semibold">Sandbox Execution Error</p>
+                      <p className="text-[11px] mt-0.5 font-mono">{sandboxError}</p>
                     </div>
                   </div>
                 )}
 
-                {/* Result Display */}
+                {/* Sandbox Results */}
                 {sandboxResult && (
                   <div className="space-y-4">
-                    {/* Execution Meta Bar */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/40 border border-border rounded-lg p-3">
-                      <div className="flex items-center gap-3 text-xs">
-                        <span className="flex items-center gap-1 font-semibold text-emerald-600">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Success
-                        </span>
-                        <span className="text-muted-foreground flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {sandboxResult.executionMs}ms
-                        </span>
-                        <span className="text-muted-foreground">
-                          Provider: <strong className="text-foreground">{sandboxResult.providerName}</strong>
-                        </span>
+                    {/* Metrics Bar */}
+                    <div className="flex flex-wrap items-center gap-4 bg-muted/40 border border-border rounded-lg px-4 py-2.5 text-xs">
+                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Execution Successful
+                      </div>
+                      <div className="flex items-center gap-1 text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        {sandboxResult.executionMs}ms
+                      </div>
+                      <div className="flex items-center gap-1 text-muted-foreground font-mono">
+                        Provider: {sandboxResult.providerName}
                       </div>
                     </div>
 
                     {/* Compiled Prompt */}
                     <div className="space-y-1.5">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Compiled Prompt (Interpolated)
-                      </h4>
-                      <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-lg p-3 whitespace-pre-wrap leading-relaxed text-foreground max-h-48 overflow-y-auto">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Compiled Prompt (Placeholders Injected)
+                      </p>
+                      <pre className="text-[11px] font-mono bg-muted/30 border border-border rounded-lg p-3 whitespace-pre-wrap overflow-x-auto max-h-48 text-foreground/80 leading-relaxed">
                         {sandboxResult.compiledPrompt}
                       </pre>
                     </div>
 
-                    {/* AI Output */}
+                    {/* AI Response */}
                     <div className="space-y-1.5">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                        Raw AI Output
-                      </h4>
-                      {sandboxResult.isImageStage ? (
-                        <div className="border border-border rounded-lg p-4 bg-muted/20 text-center">
-                          {sandboxResult.imageUrl ? (
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        AI Model Output
+                      </p>
+                      {sandboxResult.isImageStage && sandboxResult.imageUrl ? (
+                        <div className="space-y-2">
+                          <div className="aspect-square max-w-sm rounded-lg border border-border overflow-hidden bg-background">
                             <img
                               src={sandboxResult.imageUrl}
-                              alt="Generated lifestyle scene"
-                              className="max-h-72 mx-auto rounded-lg shadow-md border border-border"
+                              alt="Generated Sandbox Result"
+                              className="w-full h-full object-cover"
                             />
-                          ) : (
-                            <p className="text-xs text-muted-foreground">No image URL returned.</p>
-                          )}
+                          </div>
+                          <p className="text-[10px] font-mono text-muted-foreground truncate">
+                            {sandboxResult.imageUrl}
+                          </p>
                         </div>
                       ) : (
-                        <pre className="text-[11px] font-mono bg-background border border-border rounded-lg p-3.5 whitespace-pre-wrap leading-relaxed text-foreground max-h-64 overflow-y-auto">
+                        <pre className="text-[11px] font-mono bg-background border border-border rounded-lg p-4 whitespace-pre-wrap overflow-x-auto max-h-96 text-foreground leading-relaxed">
                           {sandboxResult.aiResponse}
                         </pre>
                       )}
@@ -776,52 +716,47 @@ function AdminAiTemplatesPage() {
               </div>
             )}
 
-            {/* ─────────────── VERSION HISTORY ─────────────── */}
+            {/* ─────────────── HISTORY ─────────────── */}
             {currentTemplate && activeTab === "history" && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Prompt Version Audit Log</h3>
-                  <span className="text-xs text-muted-foreground font-mono">
-                    Current Active: v{currentTemplate.version}
-                  </span>
-                </div>
-
                 {historyLoading ? (
-                  <div className="py-12 text-center text-xs text-muted-foreground">
-                    Loading version history...
+                  <div className="flex items-center justify-center py-10">
+                    <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : historyLogs.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-                    No previous versions found for this template. Every save from now on will be recorded.
+                  <div className="text-center py-10 text-muted-foreground text-xs">
+                    <History className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                    No version history recorded yet. Edits made from now on will appear here.
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {historyLogs.map((item) => (
+                    {historyLogs.map((log) => (
                       <div
-                        key={item.id}
-                        className="border border-border rounded-xl p-4 bg-muted/20 space-y-2 hover:border-primary/40 transition"
+                        key={log.id}
+                        className="rounded-lg border border-border bg-card p-4 space-y-3"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold text-foreground">
-                              Version {item.version}
+                            <span className="text-xs font-mono font-bold bg-muted px-2 py-0.5 rounded">
+                              v{log.version}
                             </span>
-                            <span className="text-[10px] text-muted-foreground font-mono">
-                              {new Date(item.created_at).toLocaleString()}
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(log.created_at).toLocaleString()}
                             </span>
                           </div>
                           {isSuperAdmin && (
                             <button
-                              onClick={() => handleRevertVersion(item)}
-                              className="text-xs text-primary hover:underline font-semibold"
+                              onClick={() => handleRestore(log)}
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-semibold cursor-pointer"
                             >
-                              Load this version
+                              <RotateCcw className="h-3 w-3" />
+                              Restore this version
                             </button>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground font-mono line-clamp-2 bg-background p-2 rounded border border-border">
-                          {item.prompt_text}
-                        </p>
+                        <pre className="text-[10px] font-mono bg-muted/30 border border-border rounded p-2.5 max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+                          {log.prompt_text}
+                        </pre>
                       </div>
                     ))}
                   </div>
@@ -830,7 +765,7 @@ function AdminAiTemplatesPage() {
             )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
