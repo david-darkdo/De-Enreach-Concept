@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getAIProvider } from "./ai-providers";
+export { generateStandaloneLifestyleImage } from "./lifestyle-image.functions";
 
 /**
  * Universal JSON response extractor from LLM text/markdown response
@@ -13,6 +14,8 @@ async function tryJSON<T = any>(
 ): Promise<{ data: T | null; raw: string; error?: string }> {
   try {
     const raw = await provider.callLLM(prompt, system, imageUrl);
+    if (!raw) return { data: null, raw: "", error: "AI model returned an empty text response." };
+
     const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
     const m = cleaned.match(/\{[\s\S]*\}/);
     if (!m) return { data: null, raw, error: "No JSON object found in AI response." };
