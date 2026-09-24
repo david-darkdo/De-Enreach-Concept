@@ -158,6 +158,8 @@ export async function executeProductDetailsEngine(supabase: any, productId: stri
   const isValidCanonical = Boolean(
     dbPrompt &&
     dbPrompt.includes("generated_description") &&
+    dbPrompt.includes("seo_title") &&
+    dbPrompt.includes("seo_description") &&
     dbPrompt.includes("applications") &&
     dbPrompt.includes("JSON SCHEMA")
   );
@@ -268,18 +270,16 @@ CORE INSTRUCTIONS:
   }
 
   // SEO Meta Description (Concise Search Snippet, <160 chars)
-  if (!product.seo_description_manual) {
-    const seoDesc = json.seo_description || json.meta_description || "";
-    if (seoDesc) {
-      productPatch.seo_description = seoDesc.slice(0, 300);
-    }
+  const seoDesc = json.seo_description || json.meta_description || "";
+  if ((!product.seo_description_manual || !product.seo_description) && seoDesc) {
+    productPatch.seo_description = String(seoDesc).slice(0, 300);
   }
 
-  // SEO Metadata Fields (Honoring Manual Authoritative Locks)
-  if (!product.seo_title_manual && json.seo_title) {
+  // SEO Metadata Fields (Honoring Manual Authoritative Locks with real content)
+  if ((!product.seo_title_manual || !product.seo_title) && json.seo_title) {
     productPatch.seo_title = String(json.seo_title).slice(0, 150);
   }
-  if (!product.seo_keywords_manual && Array.isArray(json.seo_keywords)) {
+  if ((!product.seo_keywords_manual || !product.seo_keywords?.length) && Array.isArray(json.seo_keywords)) {
     productPatch.seo_keywords = json.seo_keywords.map((k: any) => String(k).trim()).filter(Boolean);
   }
   if (!product.slug && json.canonical_slug && typeof json.canonical_slug === "string") {
