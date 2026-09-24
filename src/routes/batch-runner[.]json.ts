@@ -261,7 +261,7 @@ export const Route = createFileRoute("/batch-runner.json")({
 
             const list = allProducts || [];
             const { count: understandingCount } = await supabase.from("product_understanding").select("id", { count: "exact", head: true });
-            const { count: searchIndexCount } = await supabase.from("search_index" as any).select("id", { count: "exact", head: true });
+            const { count: searchIndexCount } = await supabase.from("search_index" as any).select("product_id", { count: "exact", head: true });
 
             const stats = {
               totalProducts: list.length,
@@ -336,22 +336,26 @@ export const Route = createFileRoute("/batch-runner.json")({
               }
             }
 
-            const duplicateDescriptions = Object.entries(descMap).filter(([_, names]) => names.length > 1).length;
-            const duplicateTitles = Object.entries(titleMap).filter(([_, names]) => names.length > 1).length;
-            const duplicateSeoDescriptions = Object.entries(seoDescMap).filter(([_, names]) => names.length > 1).length;
-            const duplicateAppSummaries = Object.entries(appSummaryMap).filter(([_, names]) => names.length > 1).length;
-            const duplicateFaqs = Object.entries(faqMap).filter(([_, names]) => names.length > 1).length;
+            const duplicateDescriptions = Object.entries(descMap).filter(([_, names]) => names.length > 1);
+            const duplicateTitles = Object.entries(titleMap).filter(([_, names]) => names.length > 1);
+            const duplicateSeoDescriptions = Object.entries(seoDescMap).filter(([_, names]) => names.length > 1);
+            const duplicateAppSummaries = Object.entries(appSummaryMap).filter(([_, names]) => names.length > 1);
+            const duplicateFaqs = Object.entries(faqMap).filter(([_, names]) => names.length > 1);
 
             return new Response(
               JSON.stringify({
                 ok: true,
-                duplicateAuditPassed: duplicateDescriptions === 0 && duplicateTitles === 0 && duplicateSeoDescriptions === 0,
+                duplicateAuditPassed: duplicateDescriptions.length === 0 && duplicateTitles.length === 0 && duplicateSeoDescriptions.length === 0,
                 duplicateCounts: {
-                  duplicateDescriptions,
-                  duplicateTitles,
-                  duplicateSeoDescriptions,
-                  duplicateAppSummaries,
-                  duplicateFaqs,
+                  duplicateDescriptions: duplicateDescriptions.length,
+                  duplicateTitles: duplicateTitles.length,
+                  duplicateSeoDescriptions: duplicateSeoDescriptions.length,
+                  duplicateAppSummaries: duplicateAppSummaries.length,
+                  duplicateFaqs: duplicateFaqs.length,
+                },
+                duplicateDetails: {
+                  titles: duplicateTitles.map(([title, names]) => ({ title, count: names.length, products: names })),
+                  descriptions: duplicateDescriptions.map(([desc, names]) => ({ desc: desc.slice(0, 100), count: names.length, products: names })),
                 },
               }),
               { headers: { "Content-Type": "application/json" } }
