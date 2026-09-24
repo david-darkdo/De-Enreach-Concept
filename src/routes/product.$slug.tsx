@@ -402,13 +402,13 @@ function ProductDetailPage() {
         </nav>
 
         {/* 2. PRODUCT GALLERY */}
-        <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <div className={`mt-3 grid gap-4 ${installed ? "md:grid-cols-2" : "grid-cols-1 md:max-w-xl md:mx-auto lg:max-w-2xl"}`}>
           <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm aspect-square flex items-center justify-center">
-            {galleryImages[activeImgIndex] ? (
+            {galleryImages[activeImgIndex] || studio ? (
               <img
-                src={galleryImages[activeImgIndex]}
+                src={galleryImages[activeImgIndex] || studio}
                 alt={`${product.name} - Studio Image`}
-                onClick={() => setLightboxImg(galleryImages[activeImgIndex])}
+                onClick={() => setLightboxImg(galleryImages[activeImgIndex] || studio)}
                 className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.01] transition-transform duration-300"
               />
             ) : (
@@ -416,9 +416,9 @@ function ProductDetailPage() {
             )}
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm flex flex-col justify-between aspect-square">
-            <div className="flex-1 overflow-hidden">
-              {installed ? (
+          {installed && (
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm flex flex-col justify-between aspect-square">
+              <div className="flex-1 overflow-hidden">
                 <img
                   src={installed}
                   alt={`${product.name} - Installed Scene Reference`}
@@ -426,16 +426,12 @@ function ProductDetailPage() {
                   onClick={() => setLightboxImg(installed)}
                   className="w-full h-full object-cover cursor-zoom-in hover:scale-[1.01] transition-transform duration-300"
                 />
-              ) : (
-                <div className="text-xs text-muted-foreground italic flex h-full items-center justify-center bg-muted/20">
-                  Installed architectural scene reference preview
-                </div>
-              )}
+              </div>
+              <div className="border-t border-border px-3.5 py-2 text-[9px] uppercase tracking-[0.18em] text-muted-foreground font-semibold bg-background shrink-0">
+                Installed Reference / Architectural Layout
+              </div>
             </div>
-            <div className="border-t border-border px-3.5 py-2 text-[9px] uppercase tracking-[0.18em] text-muted-foreground font-semibold bg-background shrink-0">
-              Installed Reference / Architectural Layout
-            </div>
-          </div>
+          )}
         </div>
 
         {galleryImages.length > 1 && (
