@@ -36,7 +36,7 @@ export const Route = createFileRoute("/batch-runner.json")({
           if (action === "audit") {
             const { data: products, error } = await supabase
               .from("products")
-              .select("id, name, code, sku, slug, status, is_published, hidden, generated_description, seo_title, seo_description, seo_keywords, seo_title_manual, seo_description_manual, seo_keywords_manual, master_document, faq, app_keywords, processing_state, created_at, updated_at")
+              .select("id, name, code, slug, status, is_published, hidden, generated_description, seo_title, seo_description, seo_keywords, seo_title_manual, seo_description_manual, seo_keywords_manual, master_document, faq, app_keywords, processing_state, created_at, updated_at")
               .order("created_at", { ascending: true });
 
             if (error) {
