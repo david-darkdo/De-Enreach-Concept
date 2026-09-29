@@ -6,7 +6,7 @@ declare global {
   }
 }
 
-// Immediate early capture of beforeinstallprompt on window
+// Capture Android/Chromium's native install prompt as early as possible.
 if (typeof window !== "undefined") {
   window.addEventListener("beforeinstallprompt", (e: any) => {
     e.preventDefault();
@@ -42,16 +42,24 @@ export function usePwaInstall() {
         (window.navigator as any).standalone === true ||
         document.referrer.includes("android-app://");
       setIsStandalone(standalone);
+
+      // Once the app is installed, never keep an install prompt alive.
+      if (standalone) {
+        window.__pwa_prompt = null;
+        setCanInstall(false);
+      } else {
+        setCanInstall(!!window.__pwa_prompt);
+      }
     };
 
     checkStandalone();
-    setCanInstall(!!window.__pwa_prompt);
 
     const handleReady = () => {
-      setCanInstall(true);
+      if (!isStandalone) setCanInstall(true);
     };
 
     const handleInstalled = () => {
+      window.__pwa_prompt = null;
       setCanInstall(false);
       setIsStandalone(true);
     };
@@ -63,24 +71,26 @@ export function usePwaInstall() {
       window.removeEventListener("pwa:ready", handleReady);
       window.removeEventListener("pwa:installed", handleInstalled);
     };
-  }, []);
+  }, [isStandalone]);
 
   const triggerInstall = async (): Promise<boolean> => {
     const prompt = window.__pwa_prompt;
-    if (prompt) {
-      try {
-        prompt.prompt();
-        const { outcome } = await prompt.userChoice;
-        console.log("PWA install outcome:", outcome);
-        if (outcome === "accepted") {
-          window.__pwa_prompt = null;
-          setCanInstall(false);
-          return true;
-        }
-      } catch (err) {
-        console.warn("PWA install error:", err);
+    if (!prompt || isStandalone) return false;
+
+    try {
+      prompt.prompt();
+      const { outcome } = await prompt.userChoice;
+      console.log("PWA install outcome:", outcome);
+
+      if (outcome === "accepted") {
+        window.__pwa_prompt = null;
+        setCanInstall(false);
+        return true;
       }
+    } catch (err) {
+      console.warn("PWA install error:", err);
     }
+
     return false;
   };
 
