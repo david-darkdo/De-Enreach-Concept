@@ -10,27 +10,34 @@ export function InstallPwaBanner() {
   const [showIosInstructions, setShowIosInstructions] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userAgent = window.navigator.userAgent.toLowerCase();
-      const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-      setIsIos(isIosDevice);
+    if (typeof window === "undefined") return;
 
-      const handleShowBanner = () => {
-        setIsDismissed(false);
-        if (isIosDevice) setShowIosInstructions(true);
-      };
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice =
+      /iphone|ipad|ipod/.test(userAgent) ||
+      (userAgent.includes("macintosh") && window.navigator.maxTouchPoints > 1);
 
-      window.addEventListener("pwa:show-banner", handleShowBanner);
-      return () => {
-        window.removeEventListener("pwa:show-banner", handleShowBanner);
-      };
-    }
-  }, []);
+    setIsIos(isIosDevice);
+
+    const handleShowBanner = () => {
+      if (isStandalone) return;
+      setIsDismissed(false);
+      if (isIosDevice) setShowIosInstructions(true);
+    };
+
+    window.addEventListener("pwa:show-banner", handleShowBanner);
+    return () => {
+      window.removeEventListener("pwa:show-banner", handleShowBanner);
+    };
+  }, [isStandalone]);
 
   const handleInstallClick = async () => {
     if (canInstall) {
       await triggerInstall();
-    } else if (isIos) {
+      return;
+    }
+
+    if (isIos) {
       setShowIosInstructions(true);
     }
   };
@@ -40,7 +47,11 @@ export function InstallPwaBanner() {
     setShowIosInstructions(false);
   };
 
+  // Installed apps must never show the install banner again while running standalone.
   if (isStandalone || isDismissed) return null;
+
+  // Android/Chromium: only show when the browser has supplied the native install prompt.
+  // iOS/iPadOS: show the dedicated manual Home Screen installation guidance.
   if (!canInstall && !isIos) return null;
 
   return (
@@ -75,7 +86,7 @@ export function InstallPwaBanner() {
               Install <strong>Enreach Concepts Showroom</strong> as a fast, full-screen application on your phone or desktop.
             </p>
 
-            {showIosInstructions && (
+            {isIos && (
               <div className="mt-3 rounded-lg bg-accent/50 p-2.5 text-[11px] text-accent-foreground border border-accent">
                 <p className="flex items-center gap-1.5 font-medium">
                   <Share className="h-3.5 w-3.5 text-primary" /> To install on iPhone / iPad:
@@ -83,6 +94,7 @@ export function InstallPwaBanner() {
                 <ol className="mt-1 list-decimal pl-4 space-y-0.5 text-muted-foreground">
                   <li>Tap the <strong>Share</strong> button in Safari</li>
                   <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+                  <li>Tap <strong>Add</strong> to finish installing Enreach</li>
                 </ol>
               </div>
             )}
@@ -94,7 +106,7 @@ export function InstallPwaBanner() {
                 className="h-8 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
               >
                 <Download className="h-3.5 w-3.5" />
-                Install App
+                {isIos ? "Add to Home Screen" : "Install App"}
               </Button>
               <Button
                 onClick={handleDismiss}
