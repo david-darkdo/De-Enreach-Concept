@@ -16,6 +16,12 @@ Disallow: /account/*
 Disallow: /favorites
 Disallow: /favorites/*
 
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /
+
 Sitemap: ${origin}/sitemap.xml
 Host: ${origin}
 `;
@@ -23,7 +29,7 @@ Host: ${origin}
         return new Response(robotsTxt, {
           headers: {
             "Content-Type": "text/plain",
-            "Cache-Control": "public, max-age=3600, s-maxage=18000",
+            "Cache-Control": "public, max-age=300, s-maxage=1800, stale-while-revalidate=86400",
           },
         });
       },

@@ -6,12 +6,18 @@ export function getProductionOrigin(request?: Request): string {
   if (request) {
     const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
     const proto = request.headers.get("x-forwarded-proto") || "https";
-    if (host && !host.includes("localhost") && !host.includes("127.0.0.1") && !host.includes("vercel.app")) {
+    if (
+      host &&
+      !host.includes("localhost") &&
+      !host.includes("127.0.0.1") &&
+      !host.includes("vercel.app") &&
+      !host.includes("enreach.concepts")
+    ) {
       return `${proto}://${host}`;
     }
   }
 
-  if (process.env.SITE_URL) {
+  if (process.env.SITE_URL && !process.env.SITE_URL.includes("enreach.concepts")) {
     return process.env.SITE_URL.replace(/\/$/, "");
   }
 
