@@ -218,7 +218,7 @@ const hierarchyQuery = (splat: string, origin: string) =>
 
 export const Route = createFileRoute("/$")({
   loader: async ({ context, params }) => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://showroom.enreach.concepts';
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://www.deenreachconcept.com.ng';
     const data = await context.queryClient.ensureQueryData(hierarchyQuery((params as any)._splat ?? "", origin));
     return data;
   },

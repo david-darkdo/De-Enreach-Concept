@@ -26,7 +26,9 @@ export const Route = createFileRoute("/sitemap-products.xml")({
             .from("products" as any)
             .select("id, slug, name, updated_at, created_at")
             .eq("status", "published")
-            .eq("hidden", false);
+            .eq("hidden", false)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false });
 
           if (products) {
             for (const p of (products as any[])) {

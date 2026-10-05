@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
  */
 export async function triggerSitemapUpdate(productId?: string): Promise<void> {
   try {
-    const origin = typeof window !== "undefined" ? window.location.origin : "https://showroom.enreach.concepts";
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://www.deenreachconcept.com.ng";
 
     // 1. Touch product updated_at if productId is provided
     if (productId) {

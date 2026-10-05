@@ -13,4 +13,5 @@ Allow: /
 User-agent: Googlebot-Image
 Allow: /
 
-Sitemap: https://showroom.enreach.concepts/sitemap.xml
+Sitemap: https://www.deenreachconcept.com.ng/sitemap.xml
+Host: https://www.deenreachconcept.com.ng
