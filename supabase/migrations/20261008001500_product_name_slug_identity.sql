@@ -94,7 +94,7 @@ CREATE TRIGGER trg_products_auto_slug
 DROP TRIGGER IF EXISTS trg_product_slug_change ON public.products;
 
 CREATE TRIGGER trg_product_slug_change
-  AFTER UPDATE OF slug ON public.products
+  AFTER UPDATE ON public.products
   FOR EACH ROW
   WHEN (OLD.slug IS DISTINCT FROM NEW.slug)
   EXECUTE FUNCTION public.handle_product_slug_change();
