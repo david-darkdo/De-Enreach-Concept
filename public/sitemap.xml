@@ -1,15 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap>
-    <loc>https://www.deenreachconcept.com.ng/sitemap-pages.xml</loc>
-  </sitemap>
-  <sitemap>
-    <loc>https://www.deenreachconcept.com.ng/sitemap-categories.xml</loc>
-  </sitemap>
-  <sitemap>
-    <loc>https://www.deenreachconcept.com.ng/sitemap-products.xml</loc>
-  </sitemap>
-  <sitemap>
-    <loc>https://www.deenreachconcept.com.ng/sitemap-images.xml</loc>
-  </sitemap>
+  <sitemap><loc>https://www.deenreachconcept.com.ng/sitemap-pages.xml</loc></sitemap>
+  <sitemap><loc>https://www.deenreachconcept.com.ng/sitemap-categories.xml</loc></sitemap>
+  <sitemap><loc>https://www.deenreachconcept.com.ng/sitemap-products.xml</loc></sitemap>
+  <sitemap><loc>https://www.deenreachconcept.com.ng/sitemap-images.xml</loc></sitemap>
 </sitemapindex>
