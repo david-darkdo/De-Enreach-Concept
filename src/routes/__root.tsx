@@ -105,20 +105,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { name: "apple-mobile-web-app-title", content: "Enreach" },
-      { name: "application-name", content: "Enreach Concepts Showroom" },
-      { title: "Enreach Concepts — Luxury Building Materials Showroom" },
+      { name: "application-name", content: "De Enreach Concept Showroom" },
+      { title: "De Enreach Concept — Luxury Building Materials Showroom" },
       {
         name: "description",
-        content: "Discover luxury tiles, security doors, plumbing, lighting and custom finishes. Curated premium building materials at Enreach Concepts Abuja.",
+        content: "Discover luxury tiles, security doors, plumbing, lighting and custom finishes. Curated premium building materials at De Enreach Concept Abuja.",
       },
-      { property: "og:title", content: "Enreach Concepts — Luxury Building Materials Showroom" },
+      { property: "og:title", content: "De Enreach Concept — Luxury Building Materials Showroom" },
       {
         property: "og:description",
         content: "A curated catalogue of premium tiles, doors and finishes — built for professional builders and custom residential developments.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Enreach Concepts — Luxury Building Materials Showroom" },
+      { name: "twitter:title", content: "De Enreach Concept — Luxury Building Materials Showroom" },
       { name: "twitter:description", content: "A curated catalogue of premium tiles, doors and finishes — built for professional builders." },
       { property: "og:image", content: "/logo.png" },
       { name: "twitter:image", content: "/logo.png" },
@@ -154,7 +154,7 @@ function RootShell({ children }: { children: ReactNode }) {
   const organizationSchema = {
     "@context": "https://schema.org",
     "@type": "Organization",
-    "name": "Enreach Concepts",
+    "name": "De Enreach Concept",
     "url": "https://www.deenreachconcept.com.ng",
     "logo": "https://www.deenreachconcept.com.ng/logo.png",
     "description": "Luxury building materials showroom in Abuja specializing in premium tiles, armored security doors, sanitaryware, and architectural finishes.",
@@ -168,7 +168,7 @@ function RootShell({ children }: { children: ReactNode }) {
   const websiteSchema = {
     "@context": "https://schema.org",
     "@type": "WebSite",
-    "name": "Enreach Concepts Digital Showroom",
+    "name": "De Enreach Concept Digital Showroom",
     "url": "https://www.deenreachconcept.com.ng",
     "potentialAction": {
       "@type": "SearchAction",
@@ -321,7 +321,7 @@ function RootAppWrapper() {
             <div className="flex flex-col items-center gap-4 animate-breathing">
               <img
                 src="/logo.png?v=9"
-                alt="Enreach Concepts Logo"
+                alt="De Enreach Concept Logo"
                 className="h-16 w-auto object-contain"
               />
               <span className="text-[10px] font-mono tracking-widest text-muted-foreground uppercase">
