@@ -29,6 +29,9 @@ export const Route = createFileRoute("/product/$slug")({
       .from("products")
       .select("*")
       .eq("slug", params.slug)
+      .eq("status", "published")
+      .eq("hidden", false)
+      .is("deleted_at", null)
       .maybeSingle();
 
     if (error || !product) {
@@ -110,11 +113,11 @@ export const Route = createFileRoute("/product/$slug")({
       };
     }
     const { product, origin } = loaderData;
-    const metaTitle = product.seo_title || `${product.name} | Enreach Concepts Showroom`;
+    const metaTitle = product.seo_title || `${product.name} | De Enreach Concept Showroom`;
     const metaDescription =
       product.seo_description ||
       product.short_description ||
-      `Discover ${product.name} at Enreach Concepts. Premium luxury building materials and architectural finishes in Abuja, Nigeria.`;
+      `Discover ${product.name} at De Enreach Concept. Premium building materials and architectural finishes in Abuja, Nigeria.`;
 
     const canonicalUrl = getCanonicalProductUrl(product, origin);
     const imageUrl = product.image_url || `${origin}/og-default.jpg`;
@@ -265,7 +268,7 @@ function ProductDetailPage() {
     mpn: product.code || product.id,
     brand: {
       "@type": "Brand",
-      name: product.brand || "Enreach Concepts",
+      name: product.brand || "De Enreach Concept",
     },
     category: taxonomy.category?.name || "Building Materials",
     offers: {
@@ -278,7 +281,7 @@ function ProductDetailPage() {
       priceValidUntil: "2027-12-31",
       seller: {
         "@type": "Organization",
-        name: "Enreach Concepts Digital Showroom",
+        name: "De Enreach Concept Digital Showroom",
       },
     },
   };
