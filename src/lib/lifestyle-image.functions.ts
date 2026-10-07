@@ -140,6 +140,16 @@ export const generateStandaloneLifestyleImage = createServerFn({ method: "POST" 
       };
     }
 
+    // Installed/lifestyle imagery must remain a distinct asset. Never accept
+    // the original manufacturer image as the generated installed image.
+    const normalizeAssetUrl = (value: string) => value.trim().replace(/\\/$/, "");
+    if (normalizeAssetUrl(generatedImageUrl) === normalizeAssetUrl(originalImageUrl)) {
+      return {
+        ok: false,
+        error: "Generated installed image is identical to the original product image; asset separation invariant rejected.",
+      };
+    }
+
     const elapsed = Date.now() - started;
 
     // 6. Update ONLY products.generated_installed_image
