@@ -38,7 +38,7 @@ export const DIFFERENTIATOR_TYPES = [
   "Other",
 ] as const;
 
-export const CANONICAL_PRODUCT_DETAILS_PROMPT = `Analyze the product details and uploaded image for Enreach Concepts Digital Showroom (Abuja, Nigeria):
+export const CANONICAL_PRODUCT_DETAILS_PROMPT = `Analyze the product details and uploaded image for De Enreach Concept Digital Showroom (Abuja, Nigeria):
 
 Product Name: {product_name}
 Code / SKU: {code}
@@ -60,7 +60,7 @@ Differentiator Type: {differentiator_type}
 Differentiator Note: {differentiator_note}
 
 CONTEXT & RULES:
-1. Showroom Role: You are the Professional Architectural Product Intelligence Engine for Enreach Concepts, a luxury building-materials showroom in Abuja, Nigeria. You specialize in tiles, porcelain, marble, granite, sanitaryware, doors, plumbing, lighting, furniture, and premium architectural finishes.
+1. Showroom Role: You are the Professional Architectural Product Intelligence Engine for De Enreach Concept, a luxury building-materials showroom in Abuja, Nigeria. You specialize in tiles, porcelain, marble, granite, sanitaryware, doors, plumbing, lighting, furniture, and premium architectural finishes.
 2. Authoritative Data: Manual product inputs above are 100% authoritative. Never contradict, overwrite, or misstate manual specifications.
 3. Project Differentiator: When {differentiator_type} and {differentiator_note} are provided, intelligently weave this distinction into the narrative, applications, and search keywords without mechanically repeating raw strings. If absent, reason from available evidence.
 4. Anti-Fabrication: Never invent unverified technical certifications, load ratings, fire ratings, or warranty claims unless provided.
@@ -183,8 +183,8 @@ CORE INSTRUCTIONS:
     .replace(/{product_name}/g, product.name || "")
     .replace(/{code}/g, product.code || product.sku || "")
     .replace(/{sku}/g, product.sku || product.code || "")
-    .replace(/{brand}/g, product.brand ?? "Enreach Showroom")
-    .replace(/{manufacturer}/g, product.manufacturer || masterDoc.manufacturer || product.brand || "Enreach Concepts")
+    .replace(/{brand}/g, product.brand ?? "De Enreach Concept Showroom")
+    .replace(/{manufacturer}/g, product.manufacturer || masterDoc.manufacturer || product.brand || "De Enreach Concept")
     .replace(/{production_name}/g, product.production_name ?? "")
     .replace(/{finish}/g, product.finish ?? product.finish_name ?? "premium finish")
     .replace(/{material}/g, product.material ?? "premium material")
@@ -263,6 +263,8 @@ CORE INSTRUCTIONS:
   const productPatch: Record<string, any> = {};
 
   // Customer-Facing Product Description (Rich Narrative)
+  // Preserve the permanent URL identity; AI content generation must never publish
+  // a draft or change the product's route identity as a side effect.
   const generatedDesc = json.generated_description || json.description || json.short_description || "";
   if (generatedDesc) {
     productPatch.generated_description = generatedDesc;
@@ -283,7 +285,7 @@ CORE INSTRUCTIONS:
     productPatch.seo_keywords = json.seo_keywords.map((k: any) => String(k).trim()).filter(Boolean);
   }
   if (!product.slug && json.canonical_slug && typeof json.canonical_slug === "string") {
-    productPatch.canonical_slug = json.canonical_slug.trim();
+    productPatch.canonical_slug = product.slug || json.canonical_slug.trim();
   }
 
   // Product-Specific FAQ (0-2 items, strictly validated)
@@ -353,8 +355,7 @@ CORE INSTRUCTIONS:
 
   // Execution & Lifecycle Tracking
   productPatch.processing_state = "completed";
-  productPatch.is_published = true;
-  productPatch.last_processed_at = new Date().toISOString();
+    productPatch.last_processed_at = new Date().toISOString();
   productPatch.error_log = null;
 
   // 8. Commit Atomic Database Mutation
