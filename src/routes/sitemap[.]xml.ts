@@ -6,26 +6,12 @@ export const Route = createFileRoute("/sitemap.xml")({
     handlers: {
       GET: async ({ request }) => {
         const origin = getProductionOrigin(request);
-        const now = new Date().toISOString();
-
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap>
-    <loc>${origin}/sitemap-pages.xml</loc>
-    <lastmod>${now}</lastmod>
-  </sitemap>
-  <sitemap>
-    <loc>${origin}/sitemap-categories.xml</loc>
-    <lastmod>${now}</lastmod>
-  </sitemap>
-  <sitemap>
-    <loc>${origin}/sitemap-products.xml</loc>
-    <lastmod>${now}</lastmod>
-  </sitemap>
-  <sitemap>
-    <loc>${origin}/sitemap-images.xml</loc>
-    <lastmod>${now}</lastmod>
-  </sitemap>
+  <sitemap><loc>${origin}/sitemap-pages.xml</loc></sitemap>
+  <sitemap><loc>${origin}/sitemap-categories.xml</loc></sitemap>
+  <sitemap><loc>${origin}/sitemap-products.xml</loc></sitemap>
+  <sitemap><loc>${origin}/sitemap-images.xml</loc></sitemap>
 </sitemapindex>`;
 
         return new Response(xml, {
