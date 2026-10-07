@@ -1,17 +1,10 @@
 User-agent: *
 Allow: /
 Disallow: /admin
-Disallow: /admin/*
+Disallow: /admin/
 Disallow: /account
-Disallow: /account/*
+Disallow: /account/
 Disallow: /favorites
-Disallow: /favorites/*
-
-User-agent: Googlebot
-Allow: /
-
-User-agent: Googlebot-Image
-Allow: /
+Disallow: /favorites/
 
 Sitemap: https://www.deenreachconcept.com.ng/sitemap.xml
-Host: https://www.deenreachconcept.com.ng
