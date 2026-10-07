@@ -142,7 +142,7 @@ export const generateStandaloneLifestyleImage = createServerFn({ method: "POST" 
 
     // Installed/lifestyle imagery must remain a distinct asset. Never accept
     // the original manufacturer image as the generated installed image.
-    const normalizeAssetUrl = (value: string) => value.trim().replace(/\\/$/, "");
+    const normalizeAssetUrl = (value: string) => value.trim().replace(/\/$/, "");
     if (normalizeAssetUrl(generatedImageUrl) === normalizeAssetUrl(originalImageUrl)) {
       return {
         ok: false,
