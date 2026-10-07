@@ -2,10 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getProductionOrigin } from "@/lib/origin";
 
 function escapeXml(str: string): string {
-  if (!str) return "";
   return str
     .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
+    .replace(/</g, "&lt;/g,")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
@@ -16,24 +15,13 @@ export const Route = createFileRoute("/sitemap-pages.xml")({
     handlers: {
       GET: async ({ request }) => {
         const origin = getProductionOrigin(request);
-        const now = new Date().toISOString();
-
         const pages = [
-          { loc: `${origin}/`, priority: "1.0", changefreq: "daily" },
-          { loc: `${origin}/contact`, priority: "0.8", changefreq: "monthly" },
-          { loc: `${origin}/search`, priority: "0.8", changefreq: "daily" },
-          { loc: `${origin}/favorites`, priority: "0.5", changefreq: "weekly" },
+          `${origin}/`,
+          `${origin}/contact`,
         ];
 
         const urlEntries = pages
-          .map(
-            (p) => `  <url>
-    <loc>${escapeXml(p.loc)}</loc>
-    <lastmod>${now}</lastmod>
-    <changefreq>${p.changefreq}</changefreq>
-    <priority>${p.priority}</priority>
-  </url>`
-          )
+          .map((loc) => `  <url><loc>${escapeXml(loc)}</loc></url>`)
           .join("\n");
 
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
